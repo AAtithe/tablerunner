@@ -1,0 +1,11 @@
+{
+  "name": "openroomst",
+  "version": "0.1.0",
+  "description": "OpenTable to SevenRooms booking sync for Openhouse: protected allocation, one-way sync, release schedule and daily reconciliation.",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test"
+  }
+}
