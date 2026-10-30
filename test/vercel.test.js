@@ -168,7 +168,7 @@ test('missing storage connection is reported plainly', async () => {
   assert.equal(r.statusCode, 503);
   const s = res();
   await h({ method: 'GET', url: '/api/setup-status', headers: {} }, s);
-  assert.match(s.json().error, /Upstash Redis/);
+  assert.match(s.json().error, /Upstash for Redis/);
 });
 
 test('storage lookup accepts prefixed names and explains what it found', async () => {
