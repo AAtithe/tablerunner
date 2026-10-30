@@ -7,6 +7,9 @@
 // closed: if any required field is missing it returns an error for review
 // and never guesses.
 
+// Set to true only once the patterns pass on real OpenTable samples.
+export const PATTERNS_VERIFIED = false;
+
 export const PROVISIONAL_PATTERNS = {
   type: [
     { match: /cancel/i, value: 'cancelled' },

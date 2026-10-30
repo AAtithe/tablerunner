@@ -38,3 +38,32 @@ export class MemoryStore {
     return new Set(this.released);
   }
 }
+
+// Small key/value state the dashboard reads (last email, last reconciliation).
+export class MemoryState {
+  constructor() {
+    this.values = new Map();
+  }
+
+  async get(key) {
+    return this.values.get(key) ?? null;
+  }
+
+  async set(key, value) {
+    this.values.set(key, value);
+  }
+}
+
+// Serialises occupancy changes within one process. Redis provides the
+// cross-instance equivalent on Vercel.
+export class MemoryLock {
+  constructor() {
+    this.tail = Promise.resolve();
+  }
+
+  run(fn) {
+    const result = this.tail.then(fn);
+    this.tail = result.catch(() => {});
+    return result;
+  }
+}

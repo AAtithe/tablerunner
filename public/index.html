@@ -30,6 +30,7 @@
     color-scheme: dark;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
   header, main { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
   header { padding-block: 18px 8px; max-width: 1240px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
@@ -40,7 +41,7 @@
   .banner { background: var(--warn-soft); color: var(--warn); border-radius: var(--radius); padding: 10px 14px; font-weight: 500; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; min-width: 0; }
   .grid { display: grid; gap: 12px; }
-  .status { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .status { grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); }
   .tile { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--panel); }
   .tile .label { font-size: 12px; color: var(--muted); }
   .tile .value { font-size: 15px; font-weight: 600; margin-top: 2px; }
@@ -89,6 +90,21 @@
   .feed time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
   .empty { color: var(--muted); padding: 8px 0; }
   .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+  .login { max-width: 360px; margin: 24px auto; display: grid; gap: 10px; }
+  .login input { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .login .error { color: var(--bad); font-size: 13px; min-height: 1.2em; }
+  body[data-auth="needed"] main > :not(#login):not(#setup), body[data-auth="needed"] header .toolbar { display: none; }
+  button:focus-visible, input:focus-visible, th.day:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .settings-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .settings-grid fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 0; display: grid; gap: 8px; min-width: 0; align-content: start; }
+  .settings-grid legend { font-weight: 600; padding: 0 4px; }
+  .settings-grid label { font-size: 12px; color: var(--muted); }
+  .settings-grid input, .settings-grid select, .settings-grid textarea { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; width: 100%; min-width: 0; }
+  .settings-grid textarea { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; min-height: 300px; resize: vertical; }
+  .settings-grid .wide { grid-column: 1 / -1; }
+  .hint { font-size: 12px; color: var(--muted); }
+  .msg { font-size: 13px; min-height: 1.2em; }
+  .msg.ok { color: var(--ok); } .msg.bad { color: var(--bad); }
   .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--line); }
 </style>
 </head>
@@ -102,9 +118,83 @@
     <span class="muted" id="clock"></span>
     <button id="btn-reconcile">Run reconciliation</button>
     <button id="btn-release">Run releases</button>
+    <button id="btn-settings" hidden>Settings</button>
+    <button id="btn-signout" hidden>Sign out</button>
   </div>
 </header>
 <main>
+  <form class="panel login" id="setup" hidden>
+    <h2 style="margin:0">Set up Table Runner</h2>
+    <p class="hint" style="margin:0">This is a new install. The setup code is in the Vercel logs: open the tablerunner project in Vercel, choose Logs, and search for "setup code".</p>
+    <label for="setup-code" class="muted">Setup code</label>
+    <input id="setup-code" autocomplete="off" required>
+    <label for="setup-team" class="muted">Team password, for hosts and managers (10 characters or more)</label>
+    <input type="password" id="setup-team" autocomplete="new-password" minlength="10" required>
+    <label for="setup-admin" class="muted">Admin password, for settings (10 characters or more, different)</label>
+    <input type="password" id="setup-admin" autocomplete="new-password" minlength="10" required>
+    <button class="primary" type="submit">Set up</button>
+    <div class="error" id="setup-error"></div>
+  </form>
+  <form class="panel login" id="login" hidden>
+    <h2 style="margin:0">Sign in</h2>
+    <label for="password" class="muted">Password</label>
+    <input type="password" id="password" autocomplete="current-password" required>
+    <button class="primary" type="submit">Sign in</button>
+    <div class="error" id="login-error"></div>
+  </form>
+  <section class="panel" id="settings" hidden>
+    <div class="toolbar" style="justify-content: space-between; margin-bottom: 12px;">
+      <h2 style="margin:0">Settings</h2>
+      <button id="settings-close" type="button">Close</button>
+    </div>
+    <form id="settings-form" class="settings-grid">
+      <fieldset>
+        <legend>OpenTable emails in</legend>
+        <label for="s-inbound">Webhook address for Postmark</label>
+        <input id="s-inbound" readonly>
+        <div class="toolbar">
+          <button type="button" id="s-copy">Copy</button>
+          <button type="button" id="s-regenerate">New key</button>
+        </div>
+        <div class="hint">Treat this address like a password. A new key stops the old address at once; update Postmark straight after.</div>
+      </fieldset>
+      <fieldset>
+        <legend>Alerts</legend>
+        <label for="s-webhook">Slack or Teams incoming webhook (optional)</label>
+        <input id="s-webhook" type="url" placeholder="https://hooks.slack.com/...">
+        <div class="hint">Alerts always show here. With a webhook they also go to that channel.</div>
+      </fieldset>
+      <fieldset>
+        <legend>SevenRooms</legend>
+        <label for="s-mode">Mode</label>
+        <select id="s-mode"><option value="shadow">Shadow: record only, SevenRooms untouched</option><option value="live">Live: write reservations to SevenRooms</option></select>
+        <label for="s-client-id">Client ID</label>
+        <input id="s-client-id" autocomplete="off">
+        <label for="s-client-secret">Client secret</label>
+        <input id="s-client-secret" type="password" autocomplete="new-password">
+        <label for="s-venue-id">Venue ID</label>
+        <input id="s-venue-id" autocomplete="off">
+      </fieldset>
+      <fieldset>
+        <legend>Passwords</legend>
+        <label for="s-team">New team password</label>
+        <input id="s-team" type="password" autocomplete="new-password" minlength="10">
+        <label for="s-admin">New admin password</label>
+        <input id="s-admin" type="password" autocomplete="new-password" minlength="10">
+        <div class="hint">Leave blank to keep. Changing either signs everyone else out.</div>
+      </fieldset>
+      <fieldset class="wide">
+        <legend>Floor plan and OpenTable allocation</legend>
+        <label for="s-floor">Tables, sittings, protected OpenTable tables per weekday, release rule</label>
+        <textarea id="s-floor" spellcheck="false"></textarea>
+        <div class="hint">Set "example" to false once this is the venue's real floor plan. The venue code cannot change.</div>
+      </fieldset>
+      <div class="wide toolbar">
+        <button class="primary" type="submit">Save settings</button>
+        <span class="msg" id="settings-msg" role="status"></span>
+      </div>
+    </form>
+  </section>
   <div id="demo"></div>
   <section class="grid status" id="status"></section>
 
@@ -153,9 +243,16 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const api = async (path, opts) => {
+let token = null;
+try { token = sessionStorage.getItem('tr-token'); } catch {}
+const setToken = (t) => { token = t; try { t ? sessionStorage.setItem('tr-token', t) : sessionStorage.removeItem('tr-token'); } catch {} };
+class AuthRequired extends Error {}
+const api = async (path, opts = {}) => {
   if (window.tableRunnerApi) return window.tableRunnerApi(path, opts);
-  const r = await fetch(path, opts);
+  const headers = { ...(opts.headers || {}), ...(token ? { authorization: `Bearer ${token}` } : {}) };
+  if (opts.json !== undefined) { headers['content-type'] = 'application/json'; opts = { ...opts, body: JSON.stringify(opts.json) }; }
+  const r = await fetch(path, { ...opts, headers });
+  if (r.status === 401) throw new AuthRequired((await r.json().catch(() => ({}))).error || 'Sign in required');
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
   return r.json();
 };
@@ -177,13 +274,19 @@ function renderStatus(s) {
   $('clock').textContent = `London ${s.now.slice(11)}`;
   $('venue').textContent = s.venueName ? `${s.venueName}: ` : '';
   document.title = s.venueName ? `Table Runner: ${s.venueName}` : 'Table Runner';
-  $('demo').innerHTML = s.mode?.demo ? `<div class="banner">Demo data. Every booking and guest on this page is synthetic. No vendor system is connected.${s.mode.note ? ' ' + esc(s.mode.note) : ''}</div>` : '';
+  $('demo').innerHTML = s.mode?.demo
+    ? `<div class="banner">Demo data. Every booking and guest on this page is synthetic. No vendor system is connected.${s.mode.note ? ' ' + esc(s.mode.note) : ''}</div>`
+    : !s.mode?.sevenRooms?.live
+      ? '<div class="banner">Shadow mode. OpenTable bookings are processed and shown here, but nothing is written to SevenRooms. Hosts keep working exactly as they do today.</div>'
+      : '';
   const rec = s.lastReconciliation;
-  const live = (txt) => !/stand-in|not confirmed|provisional|awaiting/i.test(txt);
+  const m = (k) => s.mode[k] ?? { live: false, value: 'Unknown', detail: '' };
+  const conn = (label, k) => tile(label, m(k).value, m(k).detail, m(k).live ? 'ok' : 'warn');
   $('status').innerHTML = [
-    tile('SevenRooms', live(s.mode.sevenRooms) ? 'Connected' : 'Not live', s.mode.sevenRooms, live(s.mode.sevenRooms) ? 'ok' : 'warn'),
-    tile('OpenTable source', live(s.mode.openTable) ? 'Partner API' : 'Email ledger', s.mode.openTable, live(s.mode.openTable) ? 'ok' : 'warn'),
-    tile('Email parser', live(s.mode.emailParser) ? 'Verified' : 'Provisional', s.mode.emailParser, live(s.mode.emailParser) ? 'ok' : 'warn'),
+    conn('SevenRooms', 'sevenRooms'),
+    conn('OpenTable source', 'openTable'),
+    conn('Email parser', 'emailParser'),
+    conn('Floor plan', 'floorPlan'),
     tile('Reconciliation', !rec ? 'Not run' : rec.issues ? `${rec.issues} issue(s)` : 'Clean', rec ? `${rec.checked} checked, ${fmtAt(rec.at)}` : 'Runs each morning before service', !rec ? 'idle' : rec.issues ? 'bad' : 'ok'),
     tile('Open alerts', String(s.openAlerts), `Last email ${fmtAt(s.lastEmailAt)}`, s.openAlerts ? 'bad' : 'ok'),
   ].join('');
@@ -249,14 +352,151 @@ function renderActivity(items) {
   $('activity').innerHTML = items.length ? items.map((i) => `<li><time>${esc(i.at.slice(11))}</time><span class="${/failed|unparseable|rejected/.test(i.kind) ? 'bad' : ''}">${esc(i.message)}</span></li>`).join('') : '<li class="empty">Nothing yet.</li>';
 }
 
-async function refresh() {
+function showLogin(message) {
+  document.body.dataset.auth = 'needed';
+  $('login').hidden = false;
+  $('login-error').textContent = message || '';
+  $('password').focus();
+}
+
+function showSetup() {
+  document.body.dataset.auth = 'needed';
+  $('setup').hidden = false;
+  $('setup-code').focus();
+}
+
+$('login').onsubmit = async (e) => {
+  e.preventDefault();
   try {
-    renderStatus(await api('/api/status'));
+    const r = await api('/api/login', { method: 'POST', json: { password: $('password').value } });
+    setToken(r.token);
+    $('password').value = '';
+    refresh();
+  } catch (err) {
+    $('login-error').textContent = err.message;
+  }
+};
+
+$('setup').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    const r = await api('/api/setup', { method: 'POST', json: {
+      code: $('setup-code').value, teamPassword: $('setup-team').value, adminPassword: $('setup-admin').value,
+    } });
+    setToken(r.token);
+    $('setup').hidden = true;
+    await refresh();
+    openSettings('Set up. Copy the webhook address into Postmark, then paste in the real floor plan.');
+  } catch (err) {
+    $('setup-error').textContent = err.message;
+  }
+};
+
+$('btn-signout').onclick = async () => {
+  try { await api('/api/logout', { method: 'POST' }); } catch {}
+  setToken(null);
+  $('settings').hidden = true;
+  showLogin('Signed out.');
+};
+
+// ---- Settings (admin only)
+let loadedFloor = '';
+const msg = (text, ok) => { $('settings-msg').textContent = text; $('settings-msg').className = `msg ${ok ? 'ok' : 'bad'}`; };
+
+function fillSettings(s) {
+  $('s-inbound').value = s.inboundUrl;
+  $('s-webhook').value = s.alertWebhookUrl;
+  $('s-mode').value = s.sevenRooms.mode;
+  $('s-mode').querySelector('option[value="live"]').disabled = !s.sevenRooms.liveAvailable;
+  $('s-client-id').value = s.sevenRooms.clientId;
+  $('s-venue-id').value = s.sevenRooms.venueId;
+  $('s-client-secret').value = '';
+  $('s-client-secret').placeholder = s.sevenRooms.clientSecretSet ? 'Saved. Type a new one to replace it.' : '';
+  $('s-team').value = ''; $('s-admin').value = '';
+  loadedFloor = JSON.stringify(s.floorPlan, null, 2);
+  $('s-floor').value = loadedFloor;
+}
+
+async function openSettings(note) {
+  try {
+    fillSettings(await api('/api/settings'));
+    $('settings').hidden = false;
+    msg(note || '', true);
+    $('settings').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    if (err instanceof AuthRequired) return showLogin('');
+    $('demo').innerHTML = `<div class="banner">${esc(err.message)}</div>`;
+  }
+}
+
+async function saveSettings(patch) {
+  try {
+    const r = await api('/api/settings', { method: 'PUT', json: patch });
+    if (r.token) setToken(r.token);
+    fillSettings(r);
+    msg(r.changed.length ? `Saved: ${r.changed.join(', ')}.` : 'No changes to save.', true);
+    refresh();
+    return r;
+  } catch (err) {
+    if (err instanceof AuthRequired) return showLogin('');
+    msg(err.message, false);
+  }
+}
+
+$('btn-settings').onclick = () => openSettings();
+$('settings-close').onclick = () => { $('settings').hidden = true; };
+
+$('settings-form').onsubmit = (e) => {
+  e.preventDefault();
+  const patch = {
+    alertWebhookUrl: $('s-webhook').value.trim(),
+    sevenRooms: { mode: $('s-mode').value, clientId: $('s-client-id').value, venueId: $('s-venue-id').value },
+  };
+  if ($('s-client-secret').value) patch.sevenRooms.clientSecret = $('s-client-secret').value;
+  if ($('s-team').value) patch.teamPassword = $('s-team').value;
+  if ($('s-admin').value) patch.adminPassword = $('s-admin').value;
+  if ($('s-floor').value.trim() !== loadedFloor.trim()) {
+    try { patch.floorPlan = JSON.parse($('s-floor').value); }
+    catch (err) { return msg(`Floor plan is not valid JSON: ${err.message}`, false); }
+  }
+  saveSettings(patch);
+};
+
+$('s-copy').onclick = async () => {
+  try { await navigator.clipboard.writeText($('s-inbound').value); msg('Webhook address copied.', true); }
+  catch { $('s-inbound').select(); msg('Selected. Press Ctrl+C or Cmd+C to copy.', true); }
+};
+
+let regenArmed = false;
+$('s-regenerate').onclick = async () => {
+  if (!regenArmed) {
+    regenArmed = true;
+    $('s-regenerate').textContent = 'Confirm new key';
+    msg('The current address will stop working. Click again to confirm.', false);
+    setTimeout(() => { regenArmed = false; $('s-regenerate').textContent = 'New key'; }, 8000);
+    return;
+  }
+  regenArmed = false;
+  $('s-regenerate').textContent = 'New key';
+  const r = await saveSettings({ regenerateInboundSecret: true });
+  if (r) msg('New key created. Paste the new address into Postmark now.', true);
+};
+
+async function refresh(fromLogin) {
+  try {
+    const status = await api('/api/status');
+    delete document.body.dataset.auth;
+    $('login').hidden = true;
+    $('setup').hidden = true;
+    $('btn-settings').hidden = status.role !== 'admin';
+    $('btn-signout').hidden = !status.role;
+    renderStatus(status);
     const [day, week, alerts, activity] = await Promise.all([
       api(`/api/day?date=${selected}`), api(`/api/week?from=${today}`), api('/api/alerts'), api('/api/activity'),
     ]);
     renderDay(day); renderWeek(week); renderAlerts(alerts); renderActivity(activity);
   } catch (e) {
+    if (e instanceof AuthRequired) { setToken(null); return showLogin(''); }
     $('demo').innerHTML = `<div class="banner">Dashboard could not load: ${esc(e.message)}</div>`;
   }
 }
@@ -272,8 +512,23 @@ $('prev').onclick = () => { selected = shift(selected, -1); refresh(); };
 $('next').onclick = () => { selected = shift(selected, 1); refresh(); };
 $('today').onclick = () => { selected = today; refresh(); };
 $('date').onchange = (e) => { if (e.target.value) { selected = e.target.value; refresh(); } };
-refresh();
-setInterval(refresh, 30000);
+async function boot() {
+  if (!window.tableRunnerApi) {
+    try {
+      const s = await api('/api/setup-status');
+      if (s.needsSetup) return showSetup();
+    } catch (err) {
+      // The local demo server has no setup step; anything else is a real problem.
+      if (!/not found/i.test(err.message)) {
+        $('demo').innerHTML = `<div class="banner">Table Runner could not start: ${esc(err.message)}</div>`;
+        return;
+      }
+    }
+  }
+  refresh();
+}
+boot();
+setInterval(() => { if (!document.body.dataset.auth) refresh(); }, 30000);
 </script>
 </body>
 </html>

@@ -3,23 +3,32 @@ import { parseOpenTableEmail } from './adapters/opentable-email.js';
 import { reconcile } from './reconcile.js';
 import { runReleases } from './release.js';
 import { addDays, allocatedTables, releaseAt } from './allocation.js';
+import { MemoryState, MemoryLock } from './store.js';
 
 // Wires the sync, releases and reconciliation together and keeps the state
 // the dashboard reads: alerts, activity, last reconciliation.
-export function createApp({ config, store, sevenRooms, alerts, ledger, activity, clock, mode, manualRelease = false }) {
+//
+// Every change to table occupancy (a booking or a release) runs under `lock`.
+// On Vercel several function instances run at once, and without the lock two
+// bookings arriving together could both be given the last table.
+export function createApp({
+  config, store, sevenRooms, alerts, ledger, activity, clock, mode,
+  state = new MemoryState(), lock = new MemoryLock(), manualRelease = false,
+}) {
   const sync = new SyncService({ config, store, sevenRooms, alert: alerts });
-  const state = { lastEmailAt: null, lastReconciliation: null, lastRelease: null };
 
   async function ingestEvent(event, via) {
-    ledger.record(event);
-    try {
-      const result = await sync.handle(event);
-      activity.add(`sync.${result.action}`, describe(event, result), { confirmation: event.confirmation, via });
-      return result;
-    } catch (err) {
-      activity.add('sync.failed', `OpenTable ${event.confirmation} failed: ${err.message}`, { confirmation: event.confirmation });
-      return { action: 'failed', error: err.message };
-    }
+    return lock.run(async () => {
+      await ledger.record(event);
+      try {
+        const result = await sync.handle(event);
+        await activity.add(`sync.${result.action}`, describe(event, result), { confirmation: event.confirmation, via });
+        return result;
+      } catch (err) {
+        await activity.add('sync.failed', `OpenTable ${event.confirmation} failed: ${err.message}`, { confirmation: event.confirmation });
+        return { action: 'failed', error: err.message };
+      }
+    });
   }
 
   return {
@@ -28,7 +37,7 @@ export function createApp({ config, store, sevenRooms, alerts, ledger, activity,
     activity,
 
     async ingestEmail(email) {
-      state.lastEmailAt = clock();
+      await state.set('lastEmailAt', clock());
       const parsed = parseOpenTableEmail(email);
       if (!parsed.ok) {
         await alerts.send({
@@ -36,7 +45,7 @@ export function createApp({ config, store, sevenRooms, alerts, ledger, activity,
           code: 'unparseable_email',
           message: `${parsed.error}. Subject: "${parsed.subject}". Enter this booking in SevenRooms by hand and send the email to the sync owner.`,
         });
-        activity.add('email.unparseable', `Could not read email "${parsed.subject}"`);
+        await activity.add('email.unparseable', `Could not read email "${parsed.subject}"`);
         return { action: 'unparseable' };
       }
       return ingestEvent(parsed.event, 'email');
@@ -60,20 +69,23 @@ export function createApp({ config, store, sevenRooms, alerts, ledger, activity,
           issues,
         });
       }
-      state.lastReconciliation = { at: clock(), fromDate, toDate, checked: ot.length, issues };
-      activity.add('reconcile', issues.length ? `Reconciliation: ${issues.length} issue(s) across ${ot.length} bookings` : `Reconciliation clean: ${ot.length} bookings checked`);
-      return state.lastReconciliation;
+      const result = { at: clock(), fromDate, toDate, checked: ot.length, issues };
+      await state.set('lastReconciliation', result);
+      await activity.add('reconcile', issues.length ? `Reconciliation: ${issues.length} issue(s) across ${ot.length} bookings` : `Reconciliation clean: ${ot.length} bookings checked`);
+      return result;
     },
 
     async release({ days = 7, manual = manualRelease } = {}) {
-      const now = clock();
-      const fromDate = now.slice(0, 10);
-      const due = await runReleases({
-        config, store, sevenRooms, alert: alerts, now, fromDate, toDate: addDays(fromDate, days - 1), manual,
+      return lock.run(async () => {
+        const now = clock();
+        const fromDate = now.slice(0, 10);
+        const due = await runReleases({
+          config, store, sevenRooms, alert: alerts, now, fromDate, toDate: addDays(fromDate, days - 1), manual,
+        });
+        await state.set('lastRelease', { at: now, count: due.length, manual });
+        if (due.length) await activity.add('release', `${manual ? 'Host asked to release' : 'Released'} ${due.length} unsold OpenTable table(s)`, { tables: due });
+        return due;
       });
-      state.lastRelease = { at: now, count: due.length, manual };
-      if (due.length) activity.add('release', `${manual ? 'Host asked to release' : 'Released'} ${due.length} unsold OpenTable table(s)`, { tables: due });
-      return due;
     },
 
     async dayView(date) {
@@ -104,20 +116,23 @@ export function createApp({ config, store, sevenRooms, alerts, ledger, activity,
       }));
     },
 
-    status() {
+    async status() {
+      const [openAlerts, lastEmailAt, lastReconciliation, lastRelease] = await Promise.all([
+        alerts.open(), state.get('lastEmailAt'), state.get('lastReconciliation'), state.get('lastRelease'),
+      ]);
       return {
         venue: config.venue,
         venueName: config.venueName ?? config.venue,
         now: clock(),
         mode,
-        openAlerts: alerts.open().length,
-        lastEmailAt: state.lastEmailAt,
-        lastReconciliation: state.lastReconciliation && {
-          at: state.lastReconciliation.at,
-          checked: state.lastReconciliation.checked,
-          issues: state.lastReconciliation.issues.length,
+        openAlerts: openAlerts.length,
+        lastEmailAt,
+        lastReconciliation: lastReconciliation && {
+          at: lastReconciliation.at,
+          checked: lastReconciliation.checked,
+          issues: lastReconciliation.issues.length,
         },
-        lastRelease: state.lastRelease,
+        lastRelease,
       };
     },
   };

@@ -1,9 +1,8 @@
 // Runs the dashboard locally against the synthetic demo. No vendor is contacted.
-import { readFileSync } from 'node:fs';
 import { buildDemo as build } from '../src/demo-data.js';
 import { createDashboardServer } from '../src/server.js';
+import { exampleConfig as config } from '../config/allocation.example.js';
 
-const config = JSON.parse(readFileSync(new URL('../config/allocation.example.json', import.meta.url)));
 
 export function buildDemo(opts = {}) {
   return build({ config, ...opts });

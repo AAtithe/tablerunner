@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { timingSafeEqual } from 'node:crypto';
 import { route, httpError } from './routes.js';
+import { hasPassword } from './auth.js';
 
 const INDEX = new URL('../public/index.html', import.meta.url);
 
@@ -11,7 +11,7 @@ const INDEX = new URL('../public/index.html', import.meta.url);
 export function createDashboardServer(app, { password } = {}) {
   return createServer(async (req, res) => {
     try {
-      if (password && !authorised(req, password)) {
+      if (password && !hasPassword(req.headers.authorization, password)) {
         res.writeHead(401, { 'www-authenticate': 'Basic realm="Table Runner"' });
         return res.end('Authentication required');
       }
@@ -25,14 +25,6 @@ export function createDashboardServer(app, { password } = {}) {
       json(res, { error: err.message }, err.status ?? 500);
     }
   });
-}
-
-function authorised(req, password) {
-  const [scheme, token] = (req.headers.authorization ?? '').split(' ');
-  if (scheme !== 'Basic' || !token) return false;
-  const given = Buffer.from(Buffer.from(token, 'base64').toString().split(':').slice(1).join(':'));
-  const expected = Buffer.from(password);
-  return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
 function json(res, body, status = 200) {

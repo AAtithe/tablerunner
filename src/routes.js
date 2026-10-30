@@ -9,7 +9,7 @@ export function httpError(status, message) {
 
 export async function route(app, method, url, readBody) {
   const key = `${method} ${url.pathname}`;
-  const today = app.status().now.slice(0, 10);
+  const today = (await app.status()).now.slice(0, 10);
   const date = (name) => {
     const v = url.searchParams.get(name) ?? today;
     if (!DATE.test(v)) throw httpError(400, `${name} must be YYYY-MM-DD`);
@@ -21,21 +21,28 @@ export async function route(app, method, url, readBody) {
   if (key === 'GET /api/week') return app.weekView(date('from'), 7);
   if (key === 'GET /api/alerts') {
     const all = url.searchParams.get('all') === '1';
-    return (all ? app.alerts.sent : app.alerts.open()).slice().reverse();
+    return (await (all ? app.alerts.all() : app.alerts.open())).slice().sort((a, b) => b.id - a.id);
   }
   if (key === 'GET /api/activity') return app.activity.list({ limit: 100 });
   if (key === 'POST /api/reconcile') return app.reconcile();
   if (key === 'POST /api/release') return app.release();
   if (key === 'POST /api/inbound-email') {
     const body = await readBody();
-    return app.ingestEmail({ subject: String(body.subject ?? ''), text: String(body.text ?? '') });
+    // Plain { subject, text } or a Postmark inbound webhook.
+    const subject = body.subject ?? body.Subject ?? '';
+    const text = body.text ?? body.TextBody ?? stripHtml(body.HtmlBody ?? '');
+    return app.ingestEmail({ subject: String(subject), text: String(text) });
   }
   const ack = key.match(/^POST \/api\/alerts\/(\d+)\/ack$/);
   if (ack) {
-    const a = app.alerts.acknowledge(Number(ack[1]));
+    const a = await app.alerts.acknowledge(Number(ack[1]));
     if (!a) throw httpError(404, 'alert not found');
-    app.activity.add('alert.ack', `Alert ${a.id} acknowledged: ${a.code}`);
+    await app.activity.add('alert.ack', `Alert ${a.id} acknowledged: ${a.code}`);
     return a;
   }
   throw httpError(404, 'not found');
+}
+
+function stripHtml(html) {
+  return String(html).replace(/<br\s*\/?>|<\/(p|div|tr|li)>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
 }

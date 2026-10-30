@@ -1,5 +1,15 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "framework": null
+  "framework": null,
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index?route=:path*" }
+  ],
+  "functions": {
+    "api/index.js": { "maxDuration": 30 }
+  },
+  "crons": [
+    { "path": "/api/cron/release", "schedule": "5 * * * *" },
+    { "path": "/api/cron/reconcile", "schedule": "30 6 * * *" }
+  ]
 }
