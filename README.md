@@ -27,7 +27,8 @@ a morning reconciliation catches anything the sync missed.
 | `src/server.js`, `public/index.html` | Dashboard and JSON API |
 | `scripts/demo.js` | Dashboard on synthetic data with in-memory vendors |
 | `src/adapters/redis.js` | Upstash Redis storage, shadow SevenRooms and the cross-instance booking lock |
-| `src/live.js`, `src/vercel.js`, `api/index.js` | Live service on Vercel: wiring from environment variables, authenticated API |
+| `src/settings.js` | In-app settings, first-run setup, password hashing, sessions, floor plan validation |
+| `src/live.js`, `src/vercel.js`, `api/index.js` | Live service on Vercel: wiring from saved settings, authenticated API |
 | `scripts/build-static.js` | Builds `dist/index.html` (live dashboard) and `dist/demo/index.html` (browser-only demo) |
 
 ## Dashboard
@@ -44,8 +45,8 @@ Open http://127.0.0.1:3000. It shows:
 - Open alerts with acknowledge, and a full activity log.
 - Buttons to run reconciliation and releases on demand.
 
-The dashboard shows guest names and contact details. Set `DASHBOARD_PASSWORD`
-(HTTP Basic auth) before it is reachable from anywhere but the machine running it.
+The local demo binds to localhost. `DASHBOARD_PASSWORD` adds a password if
+you expose it on a network; the live service on Vercel does not use it.
 
 API: `GET /api/status`, `GET /api/day?date=`, `GET /api/week?from=`,
 `GET /api/alerts`, `GET /api/activity`, `POST /api/reconcile`,
@@ -56,34 +57,42 @@ API: `GET /api/status`, `GET /api/day?date=`, `GET /api/week?from=`,
 The live service runs as one Vercel function behind `/api`, with Upstash
 Redis for storage. The dashboard is at `/` and the browser-only demo at `/demo`.
 
-Until `SEVENROOMS_MODE=live`, it runs in shadow mode: every OpenTable email is
-processed and shown with the table it would take, but nothing is written to
-SevenRooms. That is the parallel run before go-live.
+All settings live in the app, on the admin Settings screen: passwords, the
+email webhook key, the alert channel, SevenRooms details and the floor plan.
+There are no environment variables to set. The only connection outside the app
+is the one to the database that holds those settings, and Vercel creates it
+when Upstash Redis is connected.
 
-Setup, once, in the Vercel project:
+Setup, once:
 
-1. Storage: Marketplace, Upstash Redis, connect to this project. This sets
-   `KV_REST_API_URL` and `KV_REST_API_TOKEN`.
-2. Environment variables (Production and Preview):
-   - `DASHBOARD_PASSWORD`: the team password for the dashboard.
-   - `INBOUND_SECRET`: long random string for the email webhook.
-   - `CRON_SECRET`: long random string; Vercel sends it with scheduled jobs.
-   - `ALERT_WEBHOOK_URL` (optional): Slack or Teams incoming webhook.
-   - `TABLE_RUNNER_CONFIG` (when ready): the venue's real allocation JSON, in
-     the shape of `config/allocation.example.js`.
-   - `SEVENROOMS_MODE=live` plus `SEVENROOMS_CLIENT_ID`,
-     `SEVENROOMS_CLIENT_SECRET`, `SEVENROOMS_VENUE_ID`: only once the live
-     client is implemented and the parallel run is clean.
-3. Redeploy.
-4. Email: create a Postmark inbound stream and set its webhook to
-   `https://<production domain>/api/inbound-email?key=<INBOUND_SECRET>`.
-   Forward OpenTable notification emails to its inbound address.
-5. Check `https://<production domain>/api/health` returns `{"ok":true}`.
+1. In Vercel, open the tablerunner project, choose Storage, and connect
+   Upstash Redis. Redeploy.
+2. Open the site. It asks for a setup code. The code is in the project's
+   Vercel logs (search for "setup code"), which only the Vercel team can see.
+   Enter it with a team password and a different admin password.
+3. Settings opens. Copy the webhook address into a Postmark inbound stream,
+   and forward OpenTable notification emails to that stream's address.
+4. Optionally add a Slack or Teams incoming webhook for alerts.
+5. Paste the venue's real floor plan and allocation, and set `"example"` to
+   `false`.
 
-Scheduled jobs (`vercel.json`, UTC): releases at 5 minutes past every hour,
-reconciliation at 06:30. Hourly jobs need a Vercel Pro team.
+Until SevenRooms is switched to live, the service runs in shadow mode: every
+OpenTable email is processed and shown with the table it would take, but
+nothing is written to SevenRooms. The Settings screen refuses live mode until
+the SevenRooms connection is built (`SevenRoomsClient.implemented`).
 
-Every route fails closed: a route whose secret is not set returns 503.
+Access:
+
+- Team password: dashboard. Admin password: dashboard and Settings.
+- Sessions last 12 hours. Changing a password signs everyone else out.
+- Ten failed sign-ins from one address lock it out for 15 minutes.
+- Passwords are stored only as scrypt hashes.
+- The email webhook accepts only requests carrying the key from Settings.
+- Scheduled jobs (`vercel.json`, UTC): releases at 5 minutes past every hour,
+  reconciliation at 06:30. They need no secret because both only act on what
+  is already due and repeat safely; reconciliation runs at most once every 10
+  minutes. Hourly jobs need a Vercel Pro team.
+
 Every booking and release runs under a Redis lock, so two function instances
 cannot place two bookings on the same table.
 
@@ -100,10 +109,9 @@ Blocked:
    from 10 to 20 real confirmation, modification and cancellation emails.
 3. OpenTable booking list for reconciliation: depends on partner API access, or
    on building the list from the synced emails if access is refused.
-4. Allocation config: replace the example with Broadcaster's real floor plan and an
-   allocation sized from last quarter's OpenTable covers. `venue` and
-   `venueName` set which venue the instance serves.
-5. Postmark inbound stream and the Vercel environment variables above.
+4. Floor plan: replace the example on the Settings screen with Broadcaster's
+   real tables and an allocation sized from last quarter's OpenTable covers.
+5. Upstash Redis connected in Vercel, first-run setup, and a Postmark inbound stream.
 
 ## Rules that do not change
 

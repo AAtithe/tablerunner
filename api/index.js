@@ -1,5 +1,7 @@
 // Vercel function serving every /api route (see the rewrite in vercel.json).
+// All settings live in the app; the only environment input is the storage
+// connection Vercel adds when Upstash Redis is connected to the project.
 import { createHandler } from '../src/vercel.js';
-import { createLiveApp } from '../src/live.js';
+import { redisFromEnv } from '../src/live.js';
 
-export default createHandler(process.env, () => createLiveApp(process.env));
+export default createHandler({ getRedis: () => redisFromEnv(process.env) });

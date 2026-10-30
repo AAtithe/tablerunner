@@ -42,6 +42,10 @@ export class MemorySevenRooms {
 // documentation, both issued through the account manager. Endpoints are not
 // written from memory; they will be implemented against the issued docs.
 export class SevenRoomsClient {
+  // Flipped to true when the endpoints are written against the issued docs.
+  // Until then the Settings screen refuses to switch SevenRooms to live.
+  static implemented = false;
+
   constructor({ clientId, clientSecret, venueId, baseUrl } = {}) {
     this.settings = { clientId, clientSecret, venueId, baseUrl };
   }

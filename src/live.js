@@ -11,32 +11,25 @@ import { exampleConfig } from '../config/allocation.example.js';
 
 export class ConfigError extends Error {}
 
-// Builds the live service from Vercel environment variables.
-//
-//   KV_REST_API_URL / KV_REST_API_TOKEN   Upstash Redis (added by the Vercel
-//     Marketplace integration; UPSTASH_REDIS_REST_* also accepted)
-//   TABLE_RUNNER_CONFIG   venue allocation JSON; defaults to the example
-//   SEVENROOMS_MODE       "shadow" (default) records intended reservations
-//                         without contacting SevenRooms; "live" writes to it
-//   ALERT_WEBHOOK_URL     optional Slack/Teams incoming webhook
-export function createLiveApp(env, { fetchImpl = fetch, clock = () => londonNow() } = {}) {
+// The only connection read from the environment: the database that holds
+// every other setting. Vercel adds it when Upstash Redis is connected to the
+// project from the Marketplace; nobody types it in.
+export function redisFromEnv(env, { fetchImpl = fetch } = {}) {
   const url = env.KV_REST_API_URL ?? env.UPSTASH_REDIS_REST_URL;
   const token = env.KV_REST_API_TOKEN ?? env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) throw new ConfigError('Storage is not connected. Add Upstash Redis to this project from the Vercel Marketplace, then redeploy.');
-
-  let config = exampleConfig;
-  if (env.TABLE_RUNNER_CONFIG) {
-    try {
-      config = JSON.parse(env.TABLE_RUNNER_CONFIG);
-    } catch {
-      throw new ConfigError('TABLE_RUNNER_CONFIG is not valid JSON.');
-    }
+  if (!url || !token) {
+    throw new ConfigError('Storage is not connected. In Vercel, open the tablerunner project, choose Storage, connect Upstash Redis, then redeploy.');
   }
+  return new RedisRest({ url, token, fetchImpl });
+}
 
-  const sevenRoomsLive = env.SEVENROOMS_MODE === 'live';
-  const redis = new RedisRest({ url, token, fetchImpl });
+// Builds the live service from the settings saved in the app.
+export function createLiveApp({ redis, settings, clock = () => londonNow() }) {
+  const config = settings.floorPlan ?? exampleConfig;
+  const sr = settings.sevenRooms ?? { mode: 'shadow' };
+  const sevenRoomsLive = sr.mode === 'live' && SevenRoomsClient.implemented;
   const prefix = `tr:${config.venue}`;
-  const notify = env.ALERT_WEBHOOK_URL ? [new WebhookAlerts(env.ALERT_WEBHOOK_URL)] : [];
+  const notify = settings.alertWebhookUrl ? [new WebhookAlerts(settings.alertWebhookUrl)] : [];
 
   return createApp({
     config,
@@ -44,7 +37,7 @@ export function createLiveApp(env, { fetchImpl = fetch, clock = () => londonNow(
     store: new RedisStore(redis, prefix),
     ledger: new RedisLedger(redis, prefix),
     sevenRooms: sevenRoomsLive
-      ? new SevenRoomsClient({ clientId: env.SEVENROOMS_CLIENT_ID, clientSecret: env.SEVENROOMS_CLIENT_SECRET, venueId: env.SEVENROOMS_VENUE_ID })
+      ? new SevenRoomsClient({ clientId: sr.clientId, clientSecret: sr.clientSecret, venueId: sr.venueId })
       : new RedisShadowSevenRooms(redis, prefix),
     alerts: new NotifyingAlerts(new RedisAlerts(redis, prefix, { clock }), notify),
     activity: new RedisActivity(redis, prefix, { clock }),
