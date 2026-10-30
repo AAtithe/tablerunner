@@ -3,7 +3,11 @@ import { releasesDue } from './allocation.js';
 // Hands unsold OpenTable tables back to SevenRooms once their release time has
 // passed. If SevenRooms cannot release by API, `manual: true` sends the list
 // to the host as a checklist instead.
-export async function runReleases({ config, store, sevenRooms, alert, now, fromDate, toDate, manual = false }) {
+//
+// A release is two-sided: the table must also stop selling on OpenTable, or
+// OpenTable can book it after SevenRooms has resold it. Without an OpenTable
+// adapter that can close tables, the host is told to close them by hand.
+export async function runReleases({ config, store, sevenRooms, openTable, alert, now, fromDate, toDate, manual = false }) {
   const released = await store.releasedKeys();
   // Pre-load occupancy so releasesDue can stay synchronous.
   const occupiedCache = new Map();
@@ -26,6 +30,17 @@ export async function runReleases({ config, store, sevenRooms, alert, now, fromD
     });
   } else {
     for (const slot of due) await sevenRooms.releaseTable(slot);
+  }
+
+  if (openTable?.closeTable) {
+    for (const slot of due) await openTable.closeTable(slot);
+  } else {
+    await alert.send({
+      severity: 'high',
+      code: 'close_in_opentable',
+      message: `Close ${due.length} released table(s) in OpenTable now, or OpenTable can still sell them.`,
+      tables: due.map(({ date, sitting, table }) => ({ date, sitting, table })),
+    });
   }
   for (const slot of due) await store.markReleased(slot.key);
   return due;

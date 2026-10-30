@@ -22,6 +22,31 @@ a morning reconciliation catches anything the sync missed.
 | `src/adapters/sevenrooms.js` | SevenRooms adapter contract, in-memory double, live client stub |
 | `src/alert.js` | Alert sinks |
 | `src/store.js` | Booking ledger keyed by OpenTable confirmation number |
+| `src/adapters/opentable-ledger.js` | OpenTable's own record of bookings, kept apart so reconciliation compares two independent sources |
+| `src/app.js` | Wires sync, releases, reconciliation, alerts and the activity log |
+| `src/server.js`, `public/index.html` | Dashboard and JSON API |
+| `scripts/demo.js` | Dashboard on synthetic data with in-memory vendors |
+
+## Dashboard
+
+```bash
+npm run demo
+```
+
+Open http://127.0.0.1:3000. It shows:
+
+- Connection status: SevenRooms, OpenTable source, email parser, last reconciliation, open alerts.
+- Each service day: every protected table by sitting, marked sold (guest, time, party, both booking references), open or released.
+- Next 7 days: tables sold against allocation per sitting, used to size the allocation each month.
+- Open alerts with acknowledge, and a full activity log.
+- Buttons to run reconciliation and releases on demand.
+
+The dashboard shows guest names and contact details. Set `DASHBOARD_PASSWORD`
+(HTTP Basic auth) before it is reachable from anywhere but the machine running it.
+
+API: `GET /api/status`, `GET /api/day?date=`, `GET /api/week?from=`,
+`GET /api/alerts`, `GET /api/activity`, `POST /api/reconcile`,
+`POST /api/release`, `POST /api/inbound-email`, `POST /api/alerts/:id/ack`.
 
 ## Status
 
@@ -44,6 +69,9 @@ Blocked:
 
 - Hosts and the direct widget never sell a protected OpenTable table.
 - An email the parser cannot read raises an alert. It is never dropped.
+- A release is two-sided. A released table is closed in OpenTable as well as
+  opened in SevenRooms, and the sync never places a later OpenTable booking
+  on it.
 - The allocation stays in force after go-live. The sync removes re-keying; it
   does not replace the allocation.
 

@@ -30,8 +30,14 @@ export class SyncService {
     if (existing?.status === 'active' && sameBooking(existing, event)) return { action: 'noop', record: existing };
 
     const moving = existing?.status === 'active';
-    const taken = await this.store.takenTables(event.date, sittingKey(this.config, event));
+    const sitting = sittingKey(this.config, event);
+    const taken = await this.store.takenTables(event.date, sitting);
     if (moving && existing.date === event.date) taken.delete(existing.table);
+    // A released table belongs to SevenRooms again and may already be resold.
+    const prefix = `${event.date}|${sitting}|`;
+    for (const key of await this.store.releasedKeys()) {
+      if (key.startsWith(prefix)) taken.add(key.slice(prefix.length));
+    }
 
     const placement = assignTable(this.config, event, taken);
     if (!placement.ok) {

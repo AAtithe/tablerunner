@@ -130,6 +130,27 @@ test('manual release mode sends the host a checklist', async () => {
   assert.equal(sevenRooms.releases.length, 0);
 });
 
+test('release always closes the table on OpenTable too', async () => {
+  const { store, sevenRooms, alert } = setup();
+  const args = { config, store, sevenRooms, alert, now: '2026-11-05T09:00', fromDate: FRI, toDate: FRI };
+  await runReleases(args);
+  assert.equal(alert.sent.at(-1).code, 'close_in_opentable');
+
+  const closed = [];
+  const s2 = setup();
+  await runReleases({ ...args, store: s2.store, alert: s2.alert, openTable: { closeTable: async (t) => closed.push(t) } });
+  assert.equal(closed.length, 6);
+  assert.equal(s2.alert.sent.length, 0);
+});
+
+test('a booking arriving after release never lands on a released table', async () => {
+  const { sync, store, sevenRooms, alert } = setup();
+  await runReleases({ config, store, sevenRooms, alert, now: '2026-11-05T09:00', fromDate: FRI, toDate: FRI });
+  const r = await sync.handle(booking());
+  assert.equal(r.action, 'rejected');
+  assert.equal(sevenRooms.reservations.size, 0);
+});
+
 // Synthetic email: format invented for testing until real OpenTable samples arrive.
 test('inbound email flows through to SevenRooms; unparseable email alerts', async () => {
   const { sync, alert, sevenRooms } = setup();

@@ -4,8 +4,11 @@
   "description": "OpenTable to SevenRooms booking sync for Openhouse: protected allocation, one-way sync, release schedule and daily reconciliation.",
   "type": "module",
   "private": true,
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "demo": "node scripts/demo.js"
   }
 }
