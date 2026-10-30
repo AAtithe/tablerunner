@@ -156,10 +156,23 @@ export async function applySettingsChange(current, patch) {
   return { settings: next, changed };
 }
 
+export const inboundUrlFor = (s, origin) => (s.inboundSecret ? `${origin}/api/inbound-email?key=${s.inboundSecret}` : '');
+
 // What the Settings screen may see: no hashes, no stored secrets.
 export function publicSettings(s, origin) {
   return {
-    inboundUrl: s.inboundSecret ? `${origin}/api/inbound-email?key=${s.inboundSecret}` : '',
+    inboundUrl: inboundUrlFor(s, origin),
+    postmark: s.postmark
+      ? {
+        connected: true,
+        serverName: s.postmark.serverName,
+        inboundAddress: s.postmark.inboundAddress,
+        connectedAt: s.postmark.connectedAt,
+        // False if Postmark points at another address than the one in use now.
+        pointsHere: s.postmark.hookUrl === inboundUrlFor(s, origin),
+        hookHost: new URL(s.postmark.hookUrl).host,
+      }
+      : { connected: false },
     alertWebhookUrl: s.alertWebhookUrl ?? '',
     sevenRooms: {
       mode: s.sevenRooms?.mode ?? 'shadow',
