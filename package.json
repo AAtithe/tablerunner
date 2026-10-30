@@ -11,5 +11,8 @@
     "test": "node --test",
     "build": "node scripts/build-static.js",
     "demo": "node scripts/demo.js"
+  },
+  "dependencies": {
+    "redis": "4.7.0"
   }
 }

@@ -7,13 +7,17 @@ import { PATTERNS_VERIFIED } from './adapters/opentable-email.js';
 import {
   RedisRest, RedisStore, RedisLedger, RedisShadowSevenRooms, RedisAlerts, RedisActivity, RedisState, RedisLock,
 } from './adapters/redis.js';
+import { RedisTcp } from './adapters/redis-tcp.js';
 import { exampleConfig } from '../config/allocation.example.js';
 
 export class ConfigError extends Error {}
 
 // The only connection read from the environment: the database that holds
-// every other setting. Vercel adds it when Upstash Redis is connected to the
-// project from the Marketplace; nobody types it in.
+// every other setting. Vercel adds it when a Redis database is connected to
+// the project from the Marketplace; nobody types it in. Upstash's REST API is
+// used when present, otherwise a direct connection from REDIS_URL.
+const tcpClients = new Map();
+
 export function redisFromEnv(env, { fetchImpl = fetch } = {}) {
   // Vercel may add a custom prefix (e.g. STORAGE_KV_REST_API_URL), so match on
   // the suffix as well as the standard names.
@@ -24,17 +28,20 @@ export function redisFromEnv(env, { fetchImpl = fetch } = {}) {
   };
   const url = find('KV_REST_API_URL', 'UPSTASH_REDIS_REST_URL');
   const token = find('KV_REST_API_TOKEN', 'UPSTASH_REDIS_REST_TOKEN');
-  if (!url || !token) {
-    // Names only, never values, so the cause can be read off the error.
-    const seen = Object.keys(env).filter((k) => /REDIS|KV_|UPSTASH/.test(k)).sort();
-    const detail = seen.length
-      ? ` Storage settings found: ${seen.join(', ')}. ${seen.includes('REDIS_URL') && seen.length === 1
-        ? 'That is a plain Redis connection; Table Runner needs Upstash for Redis, which also provides KV_REST_API_URL and KV_REST_API_TOKEN.'
-        : 'KV_REST_API_URL and KV_REST_API_TOKEN must both be present for Production.'}`
-      : ' No storage settings were found in this deployment.';
-    throw new ConfigError(`Storage is not connected. In Vercel, open the tablerunner project, choose Storage, connect Upstash for Redis to Production, then redeploy.${detail}`);
+  if (url && token) return new RedisRest({ url, token, fetchImpl });
+
+  const tcpUrl = find('REDIS_URL', 'KV_URL');
+  if (tcpUrl && /^rediss?:\/\//.test(tcpUrl)) {
+    if (!tcpClients.has(tcpUrl)) tcpClients.set(tcpUrl, new RedisTcp(tcpUrl));
+    return tcpClients.get(tcpUrl);
   }
-  return new RedisRest({ url, token, fetchImpl });
+
+  // Names only, never values, so the cause can be read off the error.
+  const seen = Object.keys(env).filter((k) => /REDIS|KV_|UPSTASH/.test(k)).sort();
+  const detail = seen.length
+    ? ` Storage settings found: ${seen.join(', ')}, but none is a usable connection.`
+    : ' No storage settings were found in this deployment.';
+  throw new ConfigError(`Storage is not connected. In Vercel, open the tablerunner project, choose Storage, connect a Redis database to Production, then redeploy.${detail}`);
 }
 
 // Builds the live service from the settings saved in the app.

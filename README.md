@@ -26,7 +26,8 @@ a morning reconciliation catches anything the sync missed.
 | `src/app.js` | Wires sync, releases, reconciliation, alerts and the activity log |
 | `src/server.js`, `public/index.html` | Dashboard and JSON API |
 | `scripts/demo.js` | Dashboard on synthetic data with in-memory vendors |
-| `src/adapters/redis.js` | Upstash Redis storage, shadow SevenRooms and the cross-instance booking lock |
+| `src/adapters/redis.js` | Redis storage, shadow SevenRooms and the cross-instance booking lock; Upstash REST client |
+| `src/adapters/redis-tcp.js` | Direct Redis connection from `REDIS_URL` |
 | `src/settings.js` | In-app settings, first-run setup, password hashing, sessions, floor plan validation |
 | `src/live.js`, `src/vercel.js`, `api/index.js` | Live service on Vercel: wiring from saved settings, authenticated API |
 | `scripts/build-static.js` | Builds `dist/index.html` (live dashboard) and `dist/demo/index.html` (browser-only demo) |
@@ -54,19 +55,20 @@ API: `GET /api/status`, `GET /api/day?date=`, `GET /api/week?from=`,
 
 ## Live deployment (Vercel)
 
-The live service runs as one Vercel function behind `/api`, with Upstash
-Redis for storage. The dashboard is at `/` and the browser-only demo at `/demo`.
+The live service runs as one Vercel function behind `/api`, with Redis for
+storage: Upstash over its REST API when connected, otherwise any Redis
+database through its `REDIS_URL`. The dashboard is at `/` and the browser-only demo at `/demo`.
 
 All settings live in the app, on the admin Settings screen: passwords, the
 email webhook key, the alert channel, SevenRooms details and the floor plan.
 There are no environment variables to set. The only connection outside the app
 is the one to the database that holds those settings, and Vercel creates it
-when Upstash Redis is connected.
+when a Redis database is connected.
 
 Setup, once:
 
-1. In Vercel, open the tablerunner project, choose Storage, and connect
-   Upstash Redis. Redeploy.
+1. In Vercel, open the tablerunner project, choose Storage, and connect a
+   Redis database (Upstash for Redis, or Redis). Redeploy.
 2. Open the site. It asks for a setup code. The code is in the project's
    Vercel logs (search for "setup code"), which only the Vercel team can see.
    Enter it with a team password and a different admin password.
@@ -111,7 +113,7 @@ Blocked:
    on building the list from the synced emails if access is refused.
 4. Floor plan: replace the example on the Settings screen with Broadcaster's
    real tables and an allocation sized from last quarter's OpenTable covers.
-5. Upstash Redis connected in Vercel, first-run setup, and a Postmark inbound stream.
+5. First-run setup and a Postmark inbound stream.
 
 ## Rules that do not change
 
