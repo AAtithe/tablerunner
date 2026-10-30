@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Table Runner</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a66; --line: #e3e1db;
+    --accent: #1f4e79; --accent-soft: #e4edf6;
+    --ok: #2e7d4f; --ok-soft: #e3f2e8; --warn: #a15c00; --warn-soft: #fbefdc;
+    --bad: #b3261e; --bad-soft: #fbe3e1; --idle: #8a8883; --idle-soft: #efeee9;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #151514; --panel: #1f1f1d; --ink: #ecebe7; --muted: #a09e98; --line: #33322f;
+      --accent: #8db8e3; --accent-soft: #1d2b3a;
+      --ok: #7fc99a; --ok-soft: #1b2e22; --warn: #e6b062; --warn-soft: #33281a;
+      --bad: #f08a83; --bad-soft: #3a1f1d; --idle: #8f8d87; --idle-soft: #282826;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #151514; --panel: #1f1f1d; --ink: #ecebe7; --muted: #a09e98; --line: #33322f;
+    --accent: #8db8e3; --accent-soft: #1d2b3a;
+    --ok: #7fc99a; --ok-soft: #1b2e22; --warn: #e6b062; --warn-soft: #33281a;
+    --bad: #f08a83; --bad-soft: #3a1f1d; --idle: #8f8d87; --idle-soft: #282826;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 18px 16px 8px; max-width: 1240px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
+  h1 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+  h2 { margin: 0 0 10px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  main { max-width: 1240px; margin: 0 auto; padding: 0 16px 40px; display: grid; gap: 16px; }
+  .muted { color: var(--muted); }
+  .banner { background: var(--warn-soft); color: var(--warn); border-radius: var(--radius); padding: 10px 14px; font-weight: 500; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; min-width: 0; }
+  .grid { display: grid; gap: 12px; }
+  .status { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .tile { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--panel); }
+  .tile .label { font-size: 12px; color: var(--muted); }
+  .tile .value { font-size: 15px; font-weight: 600; margin-top: 2px; }
+  .tile .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+  .bg-ok { background: var(--ok); } .bg-warn { background: var(--warn); } .bg-bad { background: var(--bad); } .bg-idle { background: var(--idle); }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button, input[type=date] { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  .kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .kpi .value { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .two { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+  @media (max-width: 900px) { .two { grid-template-columns: minmax(0, 1fr); } }
+  .sitting { margin-bottom: 14px; }
+  .sitting:last-child { margin-bottom: 0; }
+  .sitting-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .tables { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+  .table { border-radius: 8px; padding: 10px; border: 1px solid var(--line); min-height: 86px; }
+  .table.sold { background: var(--accent-soft); border-color: transparent; }
+  .table.released { background: var(--idle-soft); border-style: dashed; }
+  .table .tid { font-weight: 650; display: flex; justify-content: space-between; }
+  .table .tag { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  .table .who { margin-top: 4px; font-weight: 500; overflow-wrap: anywhere; }
+  .table .meta { font-size: 12px; color: var(--muted); }
+  .scroll { overflow-x: auto; }
+  table.week { border-collapse: collapse; width: 100%; min-width: 560px; font-variant-numeric: tabular-nums; }
+  .week th, .week td { padding: 8px 6px; text-align: center; border-bottom: 1px solid var(--line); }
+  .week th:first-child, .week td:first-child { text-align: left; }
+  .week th { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .week th.day { cursor: pointer; }
+  .week th.day.active { color: var(--accent); }
+  .cell { border-radius: 6px; padding: 4px 0; }
+  .list { display: grid; gap: 8px; max-height: 460px; overflow-y: auto; }
+  .alert { border-left: 3px solid var(--warn); background: var(--warn-soft); border-radius: 6px; padding: 8px 10px; }
+  .alert.high { border-color: var(--bad); background: var(--bad-soft); }
+  .alert .row { display: flex; justify-content: space-between; gap: 8px; align-items: start; }
+  .alert .code { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .alert ul { margin: 6px 0 0; padding-left: 18px; font-size: 12px; }
+  .alert button { padding: 2px 8px; font-size: 12px; }
+  .feed { list-style: none; margin: 0; padding: 0; }
+  .feed li { padding: 6px 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 52px 1fr; gap: 8px; }
+  .feed li:last-child { border-bottom: 0; }
+  .feed time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .empty { color: var(--muted); padding: 8px 0; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Table Runner</h1>
+    <div class="muted"><span id="venue"></span>OpenTable allocation and SevenRooms sync</div>
+  </div>
+  <div class="toolbar">
+    <span class="muted" id="clock"></span>
+    <button id="btn-reconcile">Run reconciliation</button>
+    <button id="btn-release">Run releases</button>
+  </div>
+</header>
+<main>
+  <div id="demo"></div>
+  <section class="grid status" id="status"></section>
+
+  <section class="panel">
+    <div class="toolbar" style="justify-content: space-between; margin-bottom: 12px;">
+      <h2 style="margin:0">Service day</h2>
+      <div class="toolbar">
+        <button id="prev" aria-label="Previous day">Prev</button>
+        <input type="date" id="date">
+        <button id="next" aria-label="Next day">Next</button>
+        <button id="today">Today</button>
+      </div>
+    </div>
+    <div class="grid kpis" id="kpis"></div>
+  </section>
+
+  <section class="grid two">
+    <div class="panel">
+      <div class="toolbar" style="justify-content: space-between; margin-bottom: 10px;">
+        <h2 style="margin:0">Protected OpenTable tables</h2>
+        <div class="legend">
+          <span><span class="sw" style="background:var(--accent-soft)"></span>Sold</span>
+          <span><span class="sw"></span>Open</span>
+          <span><span class="sw" style="background:var(--idle-soft)"></span>Released to SevenRooms</span>
+        </div>
+      </div>
+      <div id="floor"></div>
+    </div>
+    <div class="panel">
+      <h2>Open alerts</h2>
+      <div class="list" id="alerts"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Next 7 days: tables sold of allocated</h2>
+    <div class="scroll"><table class="week" id="week"></table></div>
+    <div class="muted" style="font-size:12px;margin-top:8px">Sitting full well before release time: raise its allocation. Tables released most nights: lower it. Review monthly.</div>
+  </section>
+
+  <section class="panel">
+    <h2>Activity</h2>
+    <ul class="feed list" id="activity"></ul>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const api = async (path, opts) => {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+  return r.json();
+};
+const fmtDay = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+const fmtAt = (s) => s ? s.replace('T', ' ') : 'never';
+const shift = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+const pct = (a, b) => b ? Math.round((a / b) * 100) : 0;
+
+let selected = null;
+let today = null;
+
+function tile(label, value, sub, tone) {
+  return `<div class="tile"><div class="label">${esc(label)}</div><div class="value"><span class="dot bg-${tone}"></span>${esc(value)}</div>${sub ? `<div class="sub">${esc(sub)}</div>` : ''}</div>`;
+}
+
+function renderStatus(s) {
+  today = s.now.slice(0, 10);
+  if (!selected) selected = today;
+  $('clock').textContent = `London ${s.now.slice(11)}`;
+  $('venue').textContent = s.venueName ? `${s.venueName}: ` : '';
+  document.title = s.venueName ? `Table Runner: ${s.venueName}` : 'Table Runner';
+  $('demo').innerHTML = s.mode?.demo ? '<div class="banner">Demo data. Every booking and guest on this page is synthetic. No vendor system is connected.</div>' : '';
+  const rec = s.lastReconciliation;
+  const live = (txt) => !/stand-in|not confirmed|provisional|awaiting/i.test(txt);
+  $('status').innerHTML = [
+    tile('SevenRooms', live(s.mode.sevenRooms) ? 'Connected' : 'Not live', s.mode.sevenRooms, live(s.mode.sevenRooms) ? 'ok' : 'warn'),
+    tile('OpenTable source', live(s.mode.openTable) ? 'Partner API' : 'Email ledger', s.mode.openTable, live(s.mode.openTable) ? 'ok' : 'warn'),
+    tile('Email parser', live(s.mode.emailParser) ? 'Verified' : 'Provisional', s.mode.emailParser, live(s.mode.emailParser) ? 'ok' : 'warn'),
+    tile('Reconciliation', !rec ? 'Not run' : rec.issues ? `${rec.issues} issue(s)` : 'Clean', rec ? `${rec.checked} checked, ${fmtAt(rec.at)}` : 'Runs each morning before service', !rec ? 'idle' : rec.issues ? 'bad' : 'ok'),
+    tile('Open alerts', String(s.openAlerts), `Last email ${fmtAt(s.lastEmailAt)}`, s.openAlerts ? 'bad' : 'ok'),
+  ].join('');
+}
+
+function renderDay(d) {
+  $('date').value = d.date;
+  $('kpis').innerHTML = [
+    ['Tables sold', `${d.sold} / ${d.allocated}`, `${pct(d.sold, d.allocated)}% of allocation`],
+    ['OpenTable covers', d.covers, `${pct(d.covers, d.seatsAllocated)}% of ${d.seatsAllocated} protected seats`],
+    ['Released', d.released, d.released ? 'Unsold tables back in SevenRooms' : 'Nothing released'],
+    ['Release time', d.releaseAt.slice(11), fmtDay(d.releaseAt.slice(0, 10))],
+  ].map(([l, v, s]) => `<div class="tile kpi"><div class="label">${esc(l)}</div><div class="value">${esc(v)}</div><div class="sub">${esc(s)}</div></div>`).join('');
+
+  $('floor').innerHTML = d.sittings.map((s) => `
+    <div class="sitting">
+      <div class="sitting-head"><strong>${esc(s.name[0].toUpperCase() + s.name.slice(1))} sitting <span class="muted">${esc(s.start)} to ${esc(s.end)}</span></strong>
+        <span class="muted">${s.sold} of ${s.allocated} sold, ${s.covers} covers</span></div>
+      <div class="tables">${s.tables.length ? s.tables.map(renderTable).join('') : '<div class="empty">No OpenTable allocation</div>'}</div>
+    </div>`).join('');
+}
+
+function renderTable(t) {
+  const head = `<div class="tid">${esc(t.id)} <span class="tag">${t.seats} seats, ${t.status === 'sold' ? 'sold' : t.status === 'released' ? 'released' : 'open'}</span></div>`;
+  if (t.status !== 'sold') return `<div class="table ${t.status}">${head}<div class="meta" style="margin-top:6px">${t.status === 'released' ? 'Sellable in SevenRooms' : 'Held for OpenTable'}</div></div>`;
+  const b = t.booking;
+  return `<div class="table sold">${head}<div class="who">${esc(b.guest?.firstName)} ${esc(b.guest?.lastName)}</div>
+    <div class="meta">${esc(b.time)}, party of ${esc(b.partySize)}</div><div class="meta">${esc(b.confirmation)} &middot; ${esc(b.sevenRoomsId)}</div></div>`;
+}
+
+function renderWeek(days) {
+  const names = days[0]?.sittings.map((s) => s.name) ?? [];
+  const head = `<tr><th>Sitting</th>${days.map((d) => `<th class="day ${d.date === selected ? 'active' : ''}" data-date="${d.date}">${esc(fmtDay(d.date))}</th>`).join('')}</tr>`;
+  const row = (label, get) => `<tr><td>${esc(label)}</td>${days.map((d) => {
+    const { sold, allocated } = get(d);
+    const p = pct(sold, allocated);
+    return `<td><div class="cell" style="background: color-mix(in srgb, var(--accent) ${Math.round(p * 0.45)}%, transparent)">${sold}/${allocated}</div></td>`;
+  }).join('')}</tr>`;
+  $('week').innerHTML = head
+    + names.map((n) => row(n[0].toUpperCase() + n.slice(1), (d) => d.sittings.find((s) => s.name === n))).join('')
+    + row('Total covers', (d) => ({ sold: d.covers, allocated: d.sittings.reduce((a, s) => a + s.seatsAllocated, 0) }));
+  document.querySelectorAll('.week th.day').forEach((th) => th.onclick = () => { selected = th.dataset.date; refresh(); });
+}
+
+function renderAlerts(list) {
+  $('alerts').innerHTML = list.length ? list.map((a) => `
+    <div class="alert ${esc(a.severity)}">
+      <div class="row"><span class="code ${a.severity === 'high' ? 'bad' : 'warn'}">${esc(a.code.replace(/_/g, ' '))}</span>
+        <button data-ack="${a.id}">Acknowledge</button></div>
+      <div>${esc(a.message)}</div>
+      ${a.issues ? `<ul>${a.issues.slice(0, 8).map((i) => `<li>${esc(i.confirmation)}: ${esc(i.code.replace(/_/g, ' '))}${i.field ? ` (${esc(i.field)} OpenTable ${esc(i.openTable)}, SevenRooms ${esc(i.sevenRooms)})` : ''}</li>`).join('')}</ul>` : ''}
+      ${a.tables ? `<ul>${a.tables.map((t) => `<li>${esc(t.date)} ${esc(t.sitting)}: ${esc(t.table)}</li>`).join('')}</ul>` : ''}
+      <div class="muted" style="font-size:12px;margin-top:4px">${esc(fmtAt(a.at))}</div>
+    </div>`).join('') : '<div class="empty">No open alerts.</div>';
+  document.querySelectorAll('[data-ack]').forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    await api(`/api/alerts/${b.dataset.ack}/ack`, { method: 'POST' });
+    refresh();
+  });
+}
+
+function renderActivity(items) {
+  $('activity').innerHTML = items.length ? items.map((i) => `<li><time>${esc(i.at.slice(11))}</time><span class="${/failed|unparseable|rejected/.test(i.kind) ? 'bad' : ''}">${esc(i.message)}</span></li>`).join('') : '<li class="empty">Nothing yet.</li>';
+}
+
+async function refresh() {
+  try {
+    renderStatus(await api('/api/status'));
+    const [day, week, alerts, activity] = await Promise.all([
+      api(`/api/day?date=${selected}`), api(`/api/week?from=${today}`), api('/api/alerts'), api('/api/activity'),
+    ]);
+    renderDay(day); renderWeek(week); renderAlerts(alerts); renderActivity(activity);
+  } catch (e) {
+    $('demo').innerHTML = `<div class="banner">Dashboard could not load: ${esc(e.message)}</div>`;
+  }
+}
+
+async function action(btn, path) {
+  btn.disabled = true;
+  try { await api(path, { method: 'POST' }); } finally { btn.disabled = false; refresh(); }
+}
+
+$('btn-reconcile').onclick = (e) => action(e.target, '/api/reconcile');
+$('btn-release').onclick = (e) => action(e.target, '/api/release');
+$('prev').onclick = () => { selected = shift(selected, -1); refresh(); };
+$('next').onclick = () => { selected = shift(selected, 1); refresh(); };
+$('today').onclick = () => { selected = today; refresh(); };
+$('date').onchange = (e) => { if (e.target.value) { selected = e.target.value; refresh(); } };
+refresh();
+setInterval(refresh, 30000);
+</script>
+</body>
+</html>

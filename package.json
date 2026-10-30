@@ -1,0 +1,14 @@
+{
+  "name": "table-runner",
+  "version": "0.1.0",
+  "description": "Table Runner: OpenTable to SevenRooms booking sync with protected allocation, release schedule, daily reconciliation and dashboard.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "demo": "node scripts/demo.js"
+  }
+}

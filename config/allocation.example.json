@@ -1,0 +1,21 @@
+{
+  "venue": "broadcaster",
+  "venueName": "Broadcaster",
+  "tables": {
+    "T1": { "seats": 2 },
+    "T2": { "seats": 2 },
+    "T10": { "seats": 4 },
+    "T11": { "seats": 4 },
+    "T20": { "seats": 6 }
+  },
+  "sittings": [
+    { "name": "early", "start": "12:00", "end": "19:00" },
+    { "name": "late", "start": "19:00", "end": "23:30" }
+  ],
+  "openTable": {
+    "default": { "early": ["T1", "T10"], "late": ["T1", "T10"] },
+    "fri": { "early": ["T1", "T10"], "late": ["T1", "T2", "T10", "T11"] },
+    "sat": { "early": ["T1", "T10"], "late": ["T1", "T2", "T10", "T11"] }
+  },
+  "release": { "daysBefore": 2, "time": "16:00" }
+}
