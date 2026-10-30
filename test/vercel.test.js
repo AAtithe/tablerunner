@@ -161,21 +161,25 @@ test('scheduled jobs run without a secret and reconciliation is rate-limited', a
 });
 
 test('missing storage connection is reported plainly', async () => {
-  assert.throws(() => redisFromEnv({}), /connect Upstash for Redis/);
+  assert.throws(() => redisFromEnv({}), /connect a Redis database/);
   const h = createHandler({ getRedis: () => redisFromEnv({}) });
   const r = res();
   await h({ method: 'GET', url: '/api/health', headers: {} }, r);
   assert.equal(r.statusCode, 503);
   const s = res();
   await h({ method: 'GET', url: '/api/setup-status', headers: {} }, s);
-  assert.match(s.json().error, /Upstash for Redis/);
+  assert.match(s.json().error, /connect a Redis database/);
 });
 
-test('storage lookup accepts prefixed names and explains what it found', async () => {
+test('storage lookup picks REST, then a direct connection, and explains failures', async () => {
   const fetchImpl = async () => ({ ok: true, json: async () => ({ result: 'PONG' }) });
-  const r = redisFromEnv({ STORAGE_KV_REST_API_URL: 'https://x.upstash.io', STORAGE_KV_REST_API_TOKEN: 't' }, { fetchImpl });
-  assert.equal(r.url, 'https://x.upstash.io');
-  assert.throws(() => redisFromEnv({ REDIS_URL: 'redis://secret@host' }), (e) => /found: REDIS_URL\. That is a plain Redis/.test(e.message) && !e.message.includes('secret'));
-  assert.throws(() => redisFromEnv({ KV_REST_API_URL: 'https://x' }), /found: KV_REST_API_URL\. KV_REST_API_URL and KV_REST_API_TOKEN must both/);
+  const rest = redisFromEnv({ STORAGE_KV_REST_API_URL: 'https://x.upstash.io', STORAGE_KV_REST_API_TOKEN: 't', REDIS_URL: 'redis://h:6379' }, { fetchImpl });
+  assert.equal(rest.url, 'https://x.upstash.io');
+  const tcp = redisFromEnv({ REDIS_URL: 'redis://default:secret@host:6379' });
+  assert.equal(tcp.constructor.name, 'RedisTcp');
+  assert.equal(redisFromEnv({ REDIS_URL: 'redis://default:secret@host:6379' }), tcp, 'connection is reused');
+  assert.equal(redisFromEnv({ STORAGE_REDIS_URL: 'rediss://h:6380' }).constructor.name, 'RedisTcp');
+  assert.throws(() => redisFromEnv({ KV_REST_API_URL: 'https://x' }), (e) => /found: KV_REST_API_URL, but none is a usable connection/.test(e.message));
+  assert.throws(() => redisFromEnv({ REDIS_URL: 'not-a-url-secret' }), (e) => /found: REDIS_URL/.test(e.message) && !e.message.includes('secret'));
   assert.throws(() => redisFromEnv({ PATH: '/bin' }), /No storage settings were found/);
 });
