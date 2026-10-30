@@ -161,7 +161,7 @@ test('scheduled jobs run without a secret and reconciliation is rate-limited', a
 });
 
 test('missing storage connection is reported plainly', async () => {
-  assert.throws(() => redisFromEnv({}), /connect Upstash Redis/);
+  assert.throws(() => redisFromEnv({}), /connect Upstash for Redis/);
   const h = createHandler({ getRedis: () => redisFromEnv({}) });
   const r = res();
   await h({ method: 'GET', url: '/api/health', headers: {} }, r);
@@ -169,4 +169,13 @@ test('missing storage connection is reported plainly', async () => {
   const s = res();
   await h({ method: 'GET', url: '/api/setup-status', headers: {} }, s);
   assert.match(s.json().error, /Upstash Redis/);
+});
+
+test('storage lookup accepts prefixed names and explains what it found', async () => {
+  const fetchImpl = async () => ({ ok: true, json: async () => ({ result: 'PONG' }) });
+  const r = redisFromEnv({ STORAGE_KV_REST_API_URL: 'https://x.upstash.io', STORAGE_KV_REST_API_TOKEN: 't' }, { fetchImpl });
+  assert.equal(r.url, 'https://x.upstash.io');
+  assert.throws(() => redisFromEnv({ REDIS_URL: 'redis://secret@host' }), (e) => /found: REDIS_URL\. That is a plain Redis/.test(e.message) && !e.message.includes('secret'));
+  assert.throws(() => redisFromEnv({ KV_REST_API_URL: 'https://x' }), /found: KV_REST_API_URL\. KV_REST_API_URL and KV_REST_API_TOKEN must both/);
+  assert.throws(() => redisFromEnv({ PATH: '/bin' }), /No storage settings were found/);
 });

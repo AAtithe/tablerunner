@@ -15,10 +15,24 @@ export class ConfigError extends Error {}
 // every other setting. Vercel adds it when Upstash Redis is connected to the
 // project from the Marketplace; nobody types it in.
 export function redisFromEnv(env, { fetchImpl = fetch } = {}) {
-  const url = env.KV_REST_API_URL ?? env.UPSTASH_REDIS_REST_URL;
-  const token = env.KV_REST_API_TOKEN ?? env.UPSTASH_REDIS_REST_TOKEN;
+  // Vercel may add a custom prefix (e.g. STORAGE_KV_REST_API_URL), so match on
+  // the suffix as well as the standard names.
+  const find = (...suffixes) => {
+    for (const s of suffixes) if (env[s]) return env[s];
+    const key = Object.keys(env).find((k) => suffixes.some((s) => k.endsWith(`_${s}`)) && env[k]);
+    return key ? env[key] : undefined;
+  };
+  const url = find('KV_REST_API_URL', 'UPSTASH_REDIS_REST_URL');
+  const token = find('KV_REST_API_TOKEN', 'UPSTASH_REDIS_REST_TOKEN');
   if (!url || !token) {
-    throw new ConfigError('Storage is not connected. In Vercel, open the tablerunner project, choose Storage, connect Upstash Redis, then redeploy.');
+    // Names only, never values, so the cause can be read off the error.
+    const seen = Object.keys(env).filter((k) => /REDIS|KV_|UPSTASH/.test(k)).sort();
+    const detail = seen.length
+      ? ` Storage settings found: ${seen.join(', ')}. ${seen.includes('REDIS_URL') && seen.length === 1
+        ? 'That is a plain Redis connection; Table Runner needs Upstash for Redis, which also provides KV_REST_API_URL and KV_REST_API_TOKEN.'
+        : 'KV_REST_API_URL and KV_REST_API_TOKEN must both be present for Production.'}`
+      : ' No storage settings were found in this deployment.';
+    throw new ConfigError(`Storage is not connected. In Vercel, open the tablerunner project, choose Storage, connect Upstash for Redis to Production, then redeploy.${detail}`);
   }
   return new RedisRest({ url, token, fetchImpl });
 }
