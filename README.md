@@ -1,6 +1,6 @@
-# openroomst
+# Table Runner
 
-OpenTable to SevenRooms booking sync for Openhouse.
+OpenTable to SevenRooms booking sync, first deployed for Broadcaster.
 
 SevenRooms owns the floor plan. OpenTable sells only a protected allocation of
 tables per weekday and sitting. Every OpenTable booking, change and
@@ -61,8 +61,9 @@ Blocked:
    from 10 to 20 real confirmation, modification and cancellation emails.
 3. OpenTable booking list for reconciliation: depends on partner API access, or
    on building the list from the synced emails if access is refused.
-4. Allocation config: replace the example with the real floor plan and an
-   allocation sized from last quarter's OpenTable covers.
+4. Allocation config: replace the example with Broadcaster's real floor plan and an
+   allocation sized from last quarter's OpenTable covers. `venue` and
+   `venueName` set which venue the instance serves.
 5. Production store, scheduler and alert channel: choose at deployment.
 
 ## Rules that do not change

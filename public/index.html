@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Openhouse Bookings</title>
+<title>Table Runner</title>
 <style>
   :root {
     --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a66; --line: #e3e1db;
@@ -91,8 +91,8 @@
 <body>
 <header>
   <div>
-    <h1>Openhouse bookings</h1>
-    <div class="muted">OpenTable allocation and SevenRooms sync</div>
+    <h1>Table Runner</h1>
+    <div class="muted"><span id="venue"></span>OpenTable allocation and SevenRooms sync</div>
   </div>
   <div class="toolbar">
     <span class="muted" id="clock"></span>
@@ -170,6 +170,8 @@ function renderStatus(s) {
   today = s.now.slice(0, 10);
   if (!selected) selected = today;
   $('clock').textContent = `London ${s.now.slice(11)}`;
+  $('venue').textContent = s.venueName ? `${s.venueName}: ` : '';
+  document.title = s.venueName ? `Table Runner: ${s.venueName}` : 'Table Runner';
   $('demo').innerHTML = s.mode?.demo ? '<div class="banner">Demo data. Every booking and guest on this page is synthetic. No vendor system is connected.</div>' : '';
   const rec = s.lastReconciliation;
   const live = (txt) => !/stand-in|not confirmed|provisional|awaiting/i.test(txt);

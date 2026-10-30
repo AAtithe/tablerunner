@@ -78,7 +78,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const host = process.env.HOST ?? '127.0.0.1';
   const password = process.env.DASHBOARD_PASSWORD;
   createDashboardServer(app, { password }).listen(port, host, () => {
-    console.log(`openroomst demo dashboard on http://${host}:${port}`);
+    console.log(`Table Runner demo dashboard on http://${host}:${port}`);
     if (!password && host !== '127.0.0.1') console.warn('WARNING: no DASHBOARD_PASSWORD set and not bound to localhost.');
   });
 }

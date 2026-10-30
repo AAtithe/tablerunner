@@ -107,6 +107,7 @@ export function createApp({ config, store, sevenRooms, alerts, ledger, activity,
     status() {
       return {
         venue: config.venue,
+        venueName: config.venueName ?? config.venue,
         now: clock(),
         mode,
         openAlerts: alerts.open().length,

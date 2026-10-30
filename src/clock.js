@@ -1,4 +1,4 @@
-// Openhouse runs on London time. Everything in the service compares local
+// Venues run on London time. Everything in the service compares local
 // times as YYYY-MM-DDTHH:MM strings, so this is the one place a clock is read.
 
 const fmt = new Intl.DateTimeFormat('en-GB', {

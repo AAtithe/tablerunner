@@ -12,7 +12,7 @@ export function createDashboardServer(app, { password } = {}) {
   return createServer(async (req, res) => {
     try {
       if (password && !authorised(req, password)) {
-        res.writeHead(401, { 'www-authenticate': 'Basic realm="openroomst"' });
+        res.writeHead(401, { 'www-authenticate': 'Basic realm="Table Runner"' });
         return res.end('Authentication required');
       }
       const url = new URL(req.url, 'http://localhost');

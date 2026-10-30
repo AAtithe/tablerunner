@@ -1,5 +1,6 @@
 {
-  "venue": "openhouse",
+  "venue": "broadcaster",
+  "venueName": "Broadcaster",
   "tables": {
     "T1": { "seats": 2 },
     "T2": { "seats": 2 },

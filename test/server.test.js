@@ -17,10 +17,11 @@ test('dashboard and API respond with demo state', async (t) => {
   const { server, base } = await start();
   t.after(() => server.close());
 
-  assert.match(await (await fetch(base)).text(), /Openhouse bookings/);
+  assert.match(await (await fetch(base)).text(), /Table Runner/);
 
   const status = await (await fetch(`${base}/api/status`)).json();
   assert.equal(status.mode.demo, true);
+  assert.equal(status.venueName, 'Broadcaster');
   assert.ok(status.lastReconciliation.issues >= 1);
 
   const day = await (await fetch(`${base}/api/day?date=2026-11-04`)).json();
