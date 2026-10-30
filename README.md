@@ -29,6 +29,7 @@ a morning reconciliation catches anything the sync missed.
 | `src/adapters/redis.js` | Redis storage, shadow SevenRooms and the cross-instance booking lock; Upstash REST client |
 | `src/adapters/redis-tcp.js` | Direct Redis connection from `REDIS_URL` |
 | `src/settings.js` | In-app settings, first-run setup, password hashing, sessions, floor plan validation |
+| `src/postmark.js` | Connects a Postmark server's inbound webhook to Table Runner |
 | `src/live.js`, `src/vercel.js`, `api/index.js` | Live service on Vercel: wiring from saved settings, authenticated API |
 | `scripts/build-static.js` | Builds `dist/index.html` (live dashboard) and `dist/demo/index.html` (browser-only demo) |
 
@@ -72,8 +73,13 @@ Setup, once:
 2. Open the site. It asks for a setup code. The code is in the project's
    Vercel logs (search for "setup code"), which only the Vercel team can see.
    Enter it with a team password and a different admin password.
-3. Settings opens. Copy the webhook address into a Postmark inbound stream,
-   and forward OpenTable notification emails to that stream's address.
+3. Settings opens. In Postmark, create a server and copy its Server API
+   token (server, API Tokens). Paste it under "OpenTable emails in" and choose
+   Connect Postmark. Table Runner sets Postmark's inbound webhook itself and
+   shows the forwarding address. Do this from the public address, not one
+   behind Vercel's login; Table Runner refuses otherwise. Forward OpenTable
+   notification emails to the address shown. A new webhook key re-points
+   Postmark automatically.
 4. Optionally add a Slack or Teams incoming webhook for alerts.
 5. Paste the venue's real floor plan and allocation, and set `"example"` to
    `false`.
@@ -113,7 +119,7 @@ Blocked:
    on building the list from the synced emails if access is refused.
 4. Floor plan: replace the example on the Settings screen with Broadcaster's
    real tables and an allocation sized from last quarter's OpenTable covers.
-5. First-run setup and a Postmark inbound stream.
+5. First-run setup, connecting Postmark, and the forwarding rule on the venue's inbox.
 
 ## Rules that do not change
 

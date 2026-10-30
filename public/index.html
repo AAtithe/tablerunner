@@ -104,6 +104,10 @@
   .settings-grid .wide { grid-column: 1 / -1; }
   .hint { font-size: 12px; color: var(--muted); }
   .msg { font-size: 13px; min-height: 1.2em; }
+  .pm-box { border-radius: 8px; padding: 10px; display: grid; gap: 6px; font-size: 13px; }
+  .pm-box.on { background: var(--ok-soft); } .pm-box.off { background: var(--warn-soft); }
+  .pm-box code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; color: var(--ink); }
+  details summary { cursor: pointer; }
   .msg.ok { color: var(--ok); } .msg.bad { color: var(--bad); }
   .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--line); }
 </style>
@@ -150,13 +154,23 @@
     <form id="settings-form" class="settings-grid">
       <fieldset>
         <legend>OpenTable emails in</legend>
-        <label for="s-inbound">Webhook address for Postmark</label>
-        <input id="s-inbound" readonly>
+        <div id="pm-status"></div>
+        <label for="s-postmark" id="s-postmark-label">Postmark server API token</label>
+        <input id="s-postmark" type="password" autocomplete="off" placeholder="From the Postmark server's API Tokens tab">
         <div class="toolbar">
-          <button type="button" id="s-copy">Copy</button>
-          <button type="button" id="s-regenerate">New key</button>
+          <button type="button" id="s-pm-connect">Connect Postmark</button>
+          <button type="button" id="s-pm-disconnect" hidden>Disconnect</button>
         </div>
-        <div class="hint">Treat this address like a password. A new key stops the old address at once; update Postmark straight after.</div>
+        <details>
+          <summary class="hint">Webhook address (set automatically when Postmark is connected)</summary>
+          <label for="s-inbound">Webhook address</label>
+          <input id="s-inbound" readonly>
+          <div class="toolbar">
+            <button type="button" id="s-copy">Copy</button>
+            <button type="button" id="s-regenerate">New key</button>
+          </div>
+          <div class="hint">Treat this address like a password. A new key stops the old address at once; a connected Postmark is updated automatically.</div>
+        </details>
       </fieldset>
       <fieldset>
         <legend>Alerts</legend>
@@ -405,6 +419,24 @@ const msg = (text, ok) => { $('settings-msg').textContent = text; $('settings-ms
 
 function fillSettings(s) {
   $('s-inbound').value = s.inboundUrl;
+  const pm = s.postmark;
+  $('pm-status').innerHTML = pm.connected
+    ? `<div class="pm-box ${pm.pointsHere ? 'on' : 'off'}">
+        <div>Connected to Postmark server <strong>${esc(pm.serverName)}</strong>.</div>
+        <div>Forward OpenTable emails to:</div>
+        <code id="pm-address">${esc(pm.inboundAddress)}</code>
+        <div><button type="button" id="pm-copy">Copy address</button></div>
+        ${pm.pointsHere ? '' : `<div class="bad">Postmark is sending to ${esc(pm.hookHost)}, not this address. Paste the token again here to re-point it.</div>`}
+      </div>`
+    : '<div class="pm-box off">Not connected. Create a server in Postmark, then paste its Server API token below.</div>';
+  $('s-postmark').value = '';
+  $('s-postmark-label').textContent = pm.connected ? 'Replace Postmark server token' : 'Postmark server API token';
+  $('s-pm-disconnect').hidden = !pm.connected;
+  const copyBtn = $('pm-copy');
+  if (copyBtn) copyBtn.onclick = async () => {
+    try { await navigator.clipboard.writeText(pm.inboundAddress); msg('Forwarding address copied.', true); }
+    catch { msg(`Copy this address: ${pm.inboundAddress}`, true); }
+  };
   $('s-webhook').value = s.alertWebhookUrl;
   $('s-mode').value = s.sevenRooms.mode;
   $('s-mode').querySelector('option[value="live"]').disabled = !s.sevenRooms.liveAvailable;
@@ -465,6 +497,30 @@ $('settings-form').onsubmit = (e) => {
 $('s-copy').onclick = async () => {
   try { await navigator.clipboard.writeText($('s-inbound').value); msg('Webhook address copied.', true); }
   catch { $('s-inbound').select(); msg('Selected. Press Ctrl+C or Cmd+C to copy.', true); }
+};
+
+$('s-pm-connect').onclick = async () => {
+  const token = $('s-postmark').value.trim();
+  if (!token) return msg('Paste the Postmark Server API token first.', false);
+  $('s-pm-connect').disabled = true;
+  msg('Connecting to Postmark...', true);
+  const r = await saveSettings({ postmarkServerToken: token });
+  $('s-pm-connect').disabled = false;
+  if (r) msg(`Connected. Forward OpenTable emails to ${r.postmark.inboundAddress}.`, true);
+};
+
+let disconnectArmed = false;
+$('s-pm-disconnect').onclick = async () => {
+  if (!disconnectArmed) {
+    disconnectArmed = true;
+    $('s-pm-disconnect').textContent = 'Confirm disconnect';
+    msg('Table Runner will stop managing the Postmark webhook. Click again to confirm.', false);
+    setTimeout(() => { disconnectArmed = false; $('s-pm-disconnect').textContent = 'Disconnect'; }, 8000);
+    return;
+  }
+  disconnectArmed = false;
+  $('s-pm-disconnect').textContent = 'Disconnect';
+  await saveSettings({ disconnectPostmark: true });
 };
 
 let regenArmed = false;
