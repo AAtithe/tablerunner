@@ -13,7 +13,7 @@ a morning reconciliation catches anything the sync missed.
 
 | File | Purpose |
 | --- | --- |
-| `config/allocation.example.json` | Tables, sittings, OpenTable allocation per weekday and sitting, release rule |
+| `config/allocation.example.js` | Example tables, sittings, OpenTable allocation per weekday and sitting, release rule |
 | `src/allocation.js` | Table assignment within the allocation, release schedule |
 | `src/sync.js` | Applies OpenTable created / modified / cancelled events to SevenRooms, idempotently |
 | `src/release.js` | Releases unsold allocation, by API or as a host checklist (`manual: true`) |
@@ -26,6 +26,9 @@ a morning reconciliation catches anything the sync missed.
 | `src/app.js` | Wires sync, releases, reconciliation, alerts and the activity log |
 | `src/server.js`, `public/index.html` | Dashboard and JSON API |
 | `scripts/demo.js` | Dashboard on synthetic data with in-memory vendors |
+| `src/adapters/redis.js` | Upstash Redis storage, shadow SevenRooms and the cross-instance booking lock |
+| `src/live.js`, `src/vercel.js`, `api/index.js` | Live service on Vercel: wiring from environment variables, authenticated API |
+| `scripts/build-static.js` | Builds `dist/index.html` (live dashboard) and `dist/demo/index.html` (browser-only demo) |
 
 ## Dashboard
 
@@ -48,6 +51,42 @@ API: `GET /api/status`, `GET /api/day?date=`, `GET /api/week?from=`,
 `GET /api/alerts`, `GET /api/activity`, `POST /api/reconcile`,
 `POST /api/release`, `POST /api/inbound-email`, `POST /api/alerts/:id/ack`.
 
+## Live deployment (Vercel)
+
+The live service runs as one Vercel function behind `/api`, with Upstash
+Redis for storage. The dashboard is at `/` and the browser-only demo at `/demo`.
+
+Until `SEVENROOMS_MODE=live`, it runs in shadow mode: every OpenTable email is
+processed and shown with the table it would take, but nothing is written to
+SevenRooms. That is the parallel run before go-live.
+
+Setup, once, in the Vercel project:
+
+1. Storage: Marketplace, Upstash Redis, connect to this project. This sets
+   `KV_REST_API_URL` and `KV_REST_API_TOKEN`.
+2. Environment variables (Production and Preview):
+   - `DASHBOARD_PASSWORD`: the team password for the dashboard.
+   - `INBOUND_SECRET`: long random string for the email webhook.
+   - `CRON_SECRET`: long random string; Vercel sends it with scheduled jobs.
+   - `ALERT_WEBHOOK_URL` (optional): Slack or Teams incoming webhook.
+   - `TABLE_RUNNER_CONFIG` (when ready): the venue's real allocation JSON, in
+     the shape of `config/allocation.example.js`.
+   - `SEVENROOMS_MODE=live` plus `SEVENROOMS_CLIENT_ID`,
+     `SEVENROOMS_CLIENT_SECRET`, `SEVENROOMS_VENUE_ID`: only once the live
+     client is implemented and the parallel run is clean.
+3. Redeploy.
+4. Email: create a Postmark inbound stream and set its webhook to
+   `https://<production domain>/api/inbound-email?key=<INBOUND_SECRET>`.
+   Forward OpenTable notification emails to its inbound address.
+5. Check `https://<production domain>/api/health` returns `{"ok":true}`.
+
+Scheduled jobs (`vercel.json`, UTC): releases at 5 minutes past every hour,
+reconciliation at 06:30. Hourly jobs need a Vercel Pro team.
+
+Every route fails closed: a route whose secret is not set returns 503.
+Every booking and release runs under a Redis lock, so two function instances
+cannot place two bookings on the same table.
+
 ## Status
 
 Built and tested: allocation, assignment, sync logic, releases, reconciliation,
@@ -64,7 +103,7 @@ Blocked:
 4. Allocation config: replace the example with Broadcaster's real floor plan and an
    allocation sized from last quarter's OpenTable covers. `venue` and
    `venueName` set which venue the instance serves.
-5. Production store, scheduler and alert channel: choose at deployment.
+5. Postmark inbound stream and the Vercel environment variables above.
 
 ## Rules that do not change
 

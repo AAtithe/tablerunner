@@ -1,7 +1,9 @@
-// Builds dist/index.html: the dashboard with the sync engine and synthetic
-// demo bundled in, so it runs entirely in the browser. This is what Vercel
-// serves. No vendor is contacted and nothing leaves the viewer's browser.
+// Builds what Vercel serves:
+//   dist/index.html       live dashboard, reads the /api function
+//   dist/demo/index.html  the same dashboard with the sync engine and synthetic
+//                         demo bundled in; runs entirely in the browser
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { exampleConfig } from '../config/allocation.example.js';
 
 const root = new URL('../', import.meta.url);
 const read = (p) => readFileSync(new URL(p, root), 'utf8');
@@ -21,6 +23,7 @@ const MODULES = [
   'src/sync.js',
   'src/app.js',
   'src/routes.js',
+  'src/mode.js',
   'src/demo-data.js',
 ];
 
@@ -35,10 +38,9 @@ export function bundle() {
     return `// ---- ${p}\n${src}`;
   }).join('\n');
 
-  const config = read('config/allocation.example.json');
   return `${code}
 // ---- browser API
-const appReady = buildDemo({ config: ${config.trim()}, note: 'Anything you do here resets when the page reloads.' });
+const appReady = buildDemo({ config: ${JSON.stringify(exampleConfig)}, note: 'Anything you do here resets when the page reloads.' });
 window.tableRunnerApi = async (path, opts = {}) => {
   const app = await appReady;
   const body = async () => JSON.parse(opts.body ?? '{}');
@@ -48,7 +50,7 @@ window.tableRunnerApi = async (path, opts = {}) => {
 `;
 }
 
-export function build() {
+export function buildDemoPage() {
   const html = read('public/index.html');
   const marker = '<script>';
   if (html.split(marker).length !== 2) throw new Error('expected exactly one <script> in public/index.html');
@@ -56,7 +58,8 @@ export function build() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  mkdirSync(new URL('dist/', root), { recursive: true });
-  writeFileSync(new URL('dist/index.html', root), build());
-  console.log('Built dist/index.html');
+  mkdirSync(new URL('dist/demo/', root), { recursive: true });
+  writeFileSync(new URL('dist/index.html', root), read('public/index.html'));
+  writeFileSync(new URL('dist/demo/index.html', root), buildDemoPage());
+  console.log('Built dist/index.html and dist/demo/index.html');
 }

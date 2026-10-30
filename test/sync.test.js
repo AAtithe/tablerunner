@@ -1,6 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { assignTable, releaseAt, weekday } from '../src/allocation.js';
 import { MemoryStore } from '../src/store.js';
 import { MemorySevenRooms } from '../src/adapters/sevenrooms.js';
@@ -10,7 +9,7 @@ import { reconcile } from '../src/reconcile.js';
 import { runReleases } from '../src/release.js';
 import { handleInboundEmail } from '../src/index.js';
 
-const config = JSON.parse(readFileSync(new URL('../config/allocation.example.json', import.meta.url)));
+import { exampleConfig as config } from '../config/allocation.example.js';
 const FRI = '2026-11-06';
 
 function setup() {

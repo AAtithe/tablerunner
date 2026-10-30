@@ -9,6 +9,7 @@ import { MemoryAlerts } from './alert.js';
 import { ActivityLog } from './activity.js';
 import { addDays } from './allocation.js';
 import { londonNow } from './clock.js';
+import { floorPlanStatus } from './mode.js';
 
 export async function buildDemo({ config, clock = () => londonNow(), note } = {}) {
   const sevenRooms = new MemorySevenRooms();
@@ -23,9 +24,10 @@ export async function buildDemo({ config, clock = () => londonNow(), note } = {}
     mode: {
       demo: true,
       note,
-      sevenRooms: 'In-memory stand-in (live client awaiting credentials)',
-      openTable: 'Email ledger (partner API not confirmed)',
-      emailParser: 'Provisional patterns (awaiting real OpenTable emails)',
+      sevenRooms: { live: false, value: 'Not live', detail: 'In-memory stand-in (live client awaiting credentials)' },
+      openTable: { live: false, value: 'Email ledger', detail: 'Partner API not confirmed' },
+      emailParser: { live: false, value: 'Provisional', detail: 'Awaiting real OpenTable emails' },
+      floorPlan: floorPlanStatus(config),
     },
   });
 

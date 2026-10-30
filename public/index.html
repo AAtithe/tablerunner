@@ -30,6 +30,7 @@
     color-scheme: dark;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
   header, main { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
   header { padding-block: 18px 8px; max-width: 1240px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
@@ -40,7 +41,7 @@
   .banner { background: var(--warn-soft); color: var(--warn); border-radius: var(--radius); padding: 10px 14px; font-weight: 500; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; min-width: 0; }
   .grid { display: grid; gap: 12px; }
-  .status { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .status { grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); }
   .tile { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--panel); }
   .tile .label { font-size: 12px; color: var(--muted); }
   .tile .value { font-size: 15px; font-weight: 600; margin-top: 2px; }
@@ -89,6 +90,11 @@
   .feed time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
   .empty { color: var(--muted); padding: 8px 0; }
   .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+  .login { max-width: 360px; margin: 24px auto; display: grid; gap: 10px; }
+  .login input { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .login .error { color: var(--bad); font-size: 13px; min-height: 1.2em; }
+  body[data-auth="needed"] main > :not(#login), body[data-auth="needed"] header .toolbar { display: none; }
+  button:focus-visible, input:focus-visible, th.day:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--line); }
 </style>
 </head>
@@ -105,6 +111,13 @@
   </div>
 </header>
 <main>
+  <form class="panel login" id="login" hidden>
+    <h2 style="margin:0">Sign in</h2>
+    <label for="password" class="muted">Team password</label>
+    <input type="password" id="password" autocomplete="current-password" required>
+    <button class="primary" type="submit">Sign in</button>
+    <div class="error" id="login-error"></div>
+  </form>
   <div id="demo"></div>
   <section class="grid status" id="status"></section>
 
@@ -153,9 +166,14 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const api = async (path, opts) => {
+let password = null;
+try { password = sessionStorage.getItem('tr-password'); } catch {}
+class AuthRequired extends Error {}
+const api = async (path, opts = {}) => {
   if (window.tableRunnerApi) return window.tableRunnerApi(path, opts);
-  const r = await fetch(path, opts);
+  const headers = { ...(opts.headers || {}), ...(password ? { authorization: `Bearer ${password}` } : {}) };
+  const r = await fetch(path, { ...opts, headers });
+  if (r.status === 401) throw new AuthRequired('Password required');
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
   return r.json();
 };
@@ -177,13 +195,19 @@ function renderStatus(s) {
   $('clock').textContent = `London ${s.now.slice(11)}`;
   $('venue').textContent = s.venueName ? `${s.venueName}: ` : '';
   document.title = s.venueName ? `Table Runner: ${s.venueName}` : 'Table Runner';
-  $('demo').innerHTML = s.mode?.demo ? `<div class="banner">Demo data. Every booking and guest on this page is synthetic. No vendor system is connected.${s.mode.note ? ' ' + esc(s.mode.note) : ''}</div>` : '';
+  $('demo').innerHTML = s.mode?.demo
+    ? `<div class="banner">Demo data. Every booking and guest on this page is synthetic. No vendor system is connected.${s.mode.note ? ' ' + esc(s.mode.note) : ''}</div>`
+    : !s.mode?.sevenRooms?.live
+      ? '<div class="banner">Shadow mode. OpenTable bookings are processed and shown here, but nothing is written to SevenRooms. Hosts keep working exactly as they do today.</div>'
+      : '';
   const rec = s.lastReconciliation;
-  const live = (txt) => !/stand-in|not confirmed|provisional|awaiting/i.test(txt);
+  const m = (k) => s.mode[k] ?? { live: false, value: 'Unknown', detail: '' };
+  const conn = (label, k) => tile(label, m(k).value, m(k).detail, m(k).live ? 'ok' : 'warn');
   $('status').innerHTML = [
-    tile('SevenRooms', live(s.mode.sevenRooms) ? 'Connected' : 'Not live', s.mode.sevenRooms, live(s.mode.sevenRooms) ? 'ok' : 'warn'),
-    tile('OpenTable source', live(s.mode.openTable) ? 'Partner API' : 'Email ledger', s.mode.openTable, live(s.mode.openTable) ? 'ok' : 'warn'),
-    tile('Email parser', live(s.mode.emailParser) ? 'Verified' : 'Provisional', s.mode.emailParser, live(s.mode.emailParser) ? 'ok' : 'warn'),
+    conn('SevenRooms', 'sevenRooms'),
+    conn('OpenTable source', 'openTable'),
+    conn('Email parser', 'emailParser'),
+    conn('Floor plan', 'floorPlan'),
     tile('Reconciliation', !rec ? 'Not run' : rec.issues ? `${rec.issues} issue(s)` : 'Clean', rec ? `${rec.checked} checked, ${fmtAt(rec.at)}` : 'Runs each morning before service', !rec ? 'idle' : rec.issues ? 'bad' : 'ok'),
     tile('Open alerts', String(s.openAlerts), `Last email ${fmtAt(s.lastEmailAt)}`, s.openAlerts ? 'bad' : 'ok'),
   ].join('');
@@ -249,14 +273,32 @@ function renderActivity(items) {
   $('activity').innerHTML = items.length ? items.map((i) => `<li><time>${esc(i.at.slice(11))}</time><span class="${/failed|unparseable|rejected/.test(i.kind) ? 'bad' : ''}">${esc(i.message)}</span></li>`).join('') : '<li class="empty">Nothing yet.</li>';
 }
 
-async function refresh() {
+function showLogin(message) {
+  document.body.dataset.auth = 'needed';
+  $('login').hidden = false;
+  $('login-error').textContent = message || '';
+  $('password').focus();
+}
+
+$('login').onsubmit = (e) => {
+  e.preventDefault();
+  password = $('password').value;
+  try { sessionStorage.setItem('tr-password', password); } catch {}
+  refresh(true);
+};
+
+async function refresh(fromLogin) {
   try {
-    renderStatus(await api('/api/status'));
+    const status = await api('/api/status');
+    delete document.body.dataset.auth;
+    $('login').hidden = true;
+    renderStatus(status);
     const [day, week, alerts, activity] = await Promise.all([
       api(`/api/day?date=${selected}`), api(`/api/week?from=${today}`), api('/api/alerts'), api('/api/activity'),
     ]);
     renderDay(day); renderWeek(week); renderAlerts(alerts); renderActivity(activity);
   } catch (e) {
+    if (e instanceof AuthRequired) return showLogin(fromLogin === true ? 'That password was not accepted.' : '');
     $('demo').innerHTML = `<div class="banner">Dashboard could not load: ${esc(e.message)}</div>`;
   }
 }
