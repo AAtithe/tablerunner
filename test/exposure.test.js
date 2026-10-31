@@ -9,7 +9,10 @@ import { MemorySevenRooms } from '../src/adapters/sevenrooms.js';
 import { OpenTableLedger } from '../src/adapters/opentable-ledger.js';
 import { MemoryAlerts } from '../src/alert.js';
 import { ActivityLog } from '../src/activity.js';
-import { exampleConfig as config } from '../config/allocation.example.js';
+import { exampleConfig } from '../config/allocation.example.js';
+
+// One reserve table per sitting keeps the arithmetic below easy to follow.
+const config = { ...exampleConfig, release: { ...exampleConfig.release, holdBack: 1 } };
 
 // OpenTable gives no way to close a table, so a released table stays bookable
 // there. These tests cover the reserve that absorbs late OpenTable bookings,

@@ -112,6 +112,16 @@
   .pm-box code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; color: var(--ink); }
   details summary { cursor: pointer; }
   .msg.ok { color: var(--ok); } .msg.bad { color: var(--bad); }
+  .notes { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); margin-bottom: 16px; }
+  .note { border-radius: 8px; padding: 10px 12px; border-left: 3px solid var(--idle); background: var(--idle-soft); }
+  .note.improve { border-color: var(--bad); background: var(--bad-soft); }
+  .note.watch { border-color: var(--warn); background: var(--warn-soft); }
+  .note.good { border-color: var(--ok); background: var(--ok-soft); }
+  .note .area { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; color: var(--muted); }
+  .note .title { font-weight: 600; margin: 2px 0 4px; }
+  .note .detail, .note .target { font-size: 13px; }
+  .note .target { color: var(--muted); margin-top: 4px; }
+  h3 { font-size: 13px; margin: 14px 0 6px; }
   .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--line); }
 </style>
 </head>
@@ -253,12 +263,16 @@
     <div class="scroll"><table class="week" id="week"></table></div>
     <div class="muted" style="font-size:12px;margin-top:8px">Sitting full well before release time: raise its allocation. Tables released most nights: lower it. A red cell has released tables still open in OpenTable and no reserve left. Review monthly.</div>
   </section>
-  <section class="panel">
-    <h2>Reserve sizing: late OpenTable bookings</h2>
-    <div class="scroll"><table class="week" id="late-demand"></table></div>
-    <div class="muted" style="font-size:12px;margin-top:8px">Bookings OpenTable made after release time, per night, over the last 8 weeks. Set release.holdBack for each weekday and sitting to the "90% of nights" figure; "Covered" is the share of nights the current reserve would have absorbed. Below 90%: raise it. At 100% with an average near zero: lower it and release more.</div>
+  <section class="panel" id="coaching">
+    <h2>Coaching</h2>
+    <div class="muted" style="font-size:12px;margin-bottom:10px" id="coach-intro"></div>
+    <div class="notes" id="coach-notes"></div>
+    <h3>What the model has learned, per night</h3>
+    <div class="scroll"><table class="week" id="coach-model"></table></div>
+    <div class="muted" style="font-size:12px;margin-top:6px">Late: OpenTable bookings after release time. Expected is the model's forecast; recent weeks count most and nights with little history lean on the venue average. Suggested reserve covers 9 nights in 10. Sold by release is the share of the allocation sold before release time. Advice only: change release.holdBack and the allocation on the Settings screen.</div>
+    <h3>Team habits, week by week</h3>
+    <div class="scroll"><table class="week" id="coach-habits"></table></div>
   </section>
-
   <section class="panel">
     <h2>Activity</h2>
     <ul class="feed list" id="activity"></ul>
@@ -367,13 +381,38 @@ function renderWeek(days) {
   document.querySelectorAll('.week th.day').forEach((th) => th.onclick = () => { selected = th.dataset.date; refresh(); });
 }
 
-function renderLateDemand(r) {
+function renderCoaching(c) {
   const cap = (x) => x[0].toUpperCase() + x.slice(1);
-  $('late-demand').innerHTML = !r.rows.length
-    ? '<tr><td class="empty">No history yet. Late bookings are counted from the first synced booking.</td></tr>'
-    : `<tr><th>Night</th><th>Nights seen</th><th>Average late</th><th>90% of nights</th><th>Worst night</th><th>Reserve now</th><th>Covered</th></tr>`
-      + r.rows.map((x) => `<tr><td>${esc(cap(x.weekday))} ${esc(x.sitting)}</td><td>${x.nights}</td><td>${x.average}</td><td>${x.p90}</td><td>${x.max}</td>
-        <td>${x.holdBack}</td><td><span class="${x.coveredPct < 90 ? 'bad' : 'ok'}">${x.coveredPct ?? '-'}%</span></td></tr>`).join('');
+  $('coach-intro').textContent = c.dataFrom
+    ? `Learned from service since ${fmtDay(c.dataFrom)}. Updates as each night is recorded. Red: improve now. Amber: worth a look. Green: on target.`
+    : 'No history yet. The model learns from every OpenTable booking synced from here on.';
+  $('coach-notes').innerHTML = c.notes.length ? c.notes.map((n) => `<div class="note ${esc(n.tone)}">
+      <div class="area">${esc(n.area)}</div><div class="title">${esc(n.title)}</div>
+      <div class="detail">${esc(n.detail)}</div><div class="target">Target: ${esc(n.target)}</div></div>`).join('')
+    : '<div class="empty">Nothing to coach on yet.</div>';
+  const advice = { raise: 'One more', lower: 'One fewer', hold: 'Hold' };
+  $('coach-model').innerHTML = !c.model.rows.length ? '<tr><td class="empty">No history yet.</td></tr>'
+    : `<tr><th>Night</th><th>Nights</th><th>Late, average</th><th>Late, worst</th><th>Expected late</th><th>Trend</th><th>Suggested reserve</th><th>Reserve now</th><th>Confidence</th><th>Sold by release</th><th>Allocation</th></tr>`
+      + c.model.rows.map((r) => `<tr><td>${esc(cap(r.weekday))} ${esc(r.sitting)}</td><td>${r.nights}</td><td>${r.averageLate}</td><td>${r.worstLate}</td>
+        <td>${r.expectedLate}</td><td>${esc(r.lateTrend ?? '-')}</td>
+        <td><span class="${r.recommendedReserve > r.currentReserve ? 'bad' : ''}">${r.confidence === 'low' ? '-' : r.recommendedReserve}</span></td><td>${r.currentReserve}</td>
+        <td>${esc(r.confidence)}</td><td>${r.sellThroughPct ?? '-'}%</td><td>${esc(advice[r.allocationAdvice])}</td></tr>`).join('');
+  const w = c.habits;
+  const row = (label, k, fmt, good) => `<tr><td>${esc(label)}</td>${w.map((x) => {
+    const v = x[k];
+    const tone = v == null || !good ? '' : good(v) ? 'ok' : 'bad';
+    return `<td><span class="${tone}">${v == null ? '-' : esc(fmt(v))}</span></td>`;
+  }).join('')}</tr>`;
+  $('coach-habits').innerHTML = `<tr><th>Week of</th>${w.map((x) => `<th>${esc(fmtDay(x.weekStart))}</th>`).join('')}</tr>`
+    + row('Tables released', 'released', String, null)
+    + row('Closed in OpenTable before service', 'closedBeforeServicePct', (v) => `${v}%`, (v) => v >= 90)
+    + row('Hours from release to close', 'medianHoursToClose', String, (v) => v <= 2)
+    + row('High alerts', 'highAlerts', String, null)
+    + row('Answered within 30 minutes', 'ackWithin30Pct', (v) => `${v}%`, (v) => v >= 90)
+    + row('Minutes to answer', 'medianMinutesToAck', String, (v) => v <= 30)
+    + row('Reserve ran out', 'reserveExhausted', String, (v) => v === 0)
+    + row('OpenTable oversold', 'oversold', String, (v) => v === 0)
+    + row('Unreadable emails', 'unreadableEmails', String, (v) => v === 0);
 }
 function renderAlerts(list) {
   $('alerts').innerHTML = list.length ? list.map((a) => `
@@ -577,10 +616,10 @@ async function refresh(fromLogin) {
     $('btn-settings').hidden = status.role !== 'admin';
     $('btn-signout').hidden = !status.role;
     renderStatus(status);
-    const [day, week, alerts, activity, lateDemand] = await Promise.all([
-      api(`/api/day?date=${selected}`), api(`/api/week?from=${today}`), api('/api/alerts'), api('/api/activity'), api('/api/late-demand?weeks=8'),
+    const [day, week, alerts, activity, coaching] = await Promise.all([
+      api(`/api/day?date=${selected}`), api(`/api/week?from=${today}`), api('/api/alerts'), api('/api/activity'), api('/api/coaching'),
     ]);
-    renderDay(day); renderWeek(week); renderAlerts(alerts); renderActivity(activity); renderLateDemand(lateDemand);
+    renderDay(day); renderWeek(week); renderAlerts(alerts); renderActivity(activity); renderCoaching(coaching);
     document.querySelectorAll('[data-close-date]').forEach((b) => b.onclick = async () => {
       b.disabled = true;
       try { await api('/api/opentable-closed', { method: 'POST', json: { date: b.dataset.closeDate, sitting: b.dataset.closeSitting } }); }

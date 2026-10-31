@@ -7,17 +7,22 @@ import { MemorySevenRooms } from './adapters/sevenrooms.js';
 import { OpenTableLedger } from './adapters/opentable-ledger.js';
 import { MemoryAlerts } from './alert.js';
 import { ActivityLog } from './activity.js';
-import { addDays } from './allocation.js';
+import { addDays, releaseAt, weekday } from './allocation.js';
 import { londonNow } from './clock.js';
 import { floorPlanStatus } from './mode.js';
 
-export async function buildDemo({ config, clock = () => londonNow(), note } = {}) {
+export async function buildDemo({ config, clock: realClock = () => londonNow(), note } = {}) {
+  // The demo replays six weeks of past service at their own times, so the
+  // coaching section has history to learn from. `sim` holds the replay time.
+  let sim = null;
+  const clock = () => sim ?? realClock();
   const sevenRooms = new MemorySevenRooms();
+  const alerts = new MemoryAlerts({ clock });
   const app = createApp({
     config,
     store: new MemoryStore(),
     sevenRooms,
-    alerts: new MemoryAlerts({ clock }),
+    alerts,
     ledger: new OpenTableLedger(),
     activity: new ActivityLog({ clock }),
     clock,
@@ -43,6 +48,43 @@ export async function buildDemo({ config, clock = () => londonNow(), note } = {}
   });
 
   const today = clock().slice(0, 10);
+  const at = (date, hm) => `${date}T${hm}`;
+  const later = (t, mins) => {
+    const d = new Date(`${t}:00Z`);
+    d.setUTCMinutes(d.getUTCMinutes() + mins);
+    return d.toISOString().slice(0, 16);
+  };
+
+  // Six weeks of history. Fridays and Saturdays get more late OpenTable
+  // demand, and the team gets quicker at closing tables and answering
+  // alerts as the weeks go on, which is what the coaching should pick up.
+  let h = 5000;
+  for (let back = 42; back >= 1; back--) {
+    const date = addDays(today, -back);
+    const weekend = ['fri', 'sat'].includes(weekday(date));
+    const progress = (42 - back) / 42;
+    sim = at(addDays(date, -5), '12:00');
+    for (let i = 0; i < (weekend ? 3 : 1 + rand(2)); i++) {
+      await app.ingestEmail(email('New reservation', `OT${++h}`, names[rand(names.length)], 2, date, rand(3) ? late[rand(late.length)] : early[rand(early.length)]));
+    }
+    const released = releaseAt(config, date);
+    sim = released;
+    const due = await app.release({ days: 3 });
+    const closeAfter = Math.round(240 - progress * 200 + rand(60));
+    sim = later(released, closeAfter);
+    if (due.length && rand(10) < 4 + progress * 6) await app.confirmClosed({ date });
+    const lateCount = weekend ? rand(4) : rand(2);
+    for (let i = 0; i < lateCount; i++) {
+      sim = at(date, i ? '17:40' : '11:15');
+      await app.ingestEmail(email('New reservation', `OT${++h}`, names[rand(names.length)], 2, date, late[rand(late.length)]));
+    }
+    for (const a of await alerts.open()) {
+      sim = later(a.at, Math.round(70 - progress * 60 + rand(20)));
+      await alerts.acknowledge(a.id);
+    }
+  }
+  sim = null;
+
   const sent = [];
   let n = 1000;
   for (let d = 0; d < 7; d++) {

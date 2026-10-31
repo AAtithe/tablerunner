@@ -185,6 +185,26 @@ export function publicSettings(s, origin) {
   };
 }
 
+// Starting reserve for late OpenTable bookings until the coaching section has
+// enough history to recommend figures: one table per sitting, two on Friday
+// and Saturday late, when the venue has a sitting called "late".
+export function startingHoldBack(plan) {
+  const hb = { default: 1 };
+  if ((plan?.sittings ?? []).some((s) => s?.name === 'late')) {
+    hb.fri = { late: 2 };
+    hb.sat = { late: 2 };
+  }
+  return hb;
+}
+
+// Saved floor plans from before the reserve existed have no holdBack. Adds the
+// starting reserve once; a figure an admin has set is never touched.
+export function withStartingHoldBack(settings) {
+  const plan = settings?.floorPlan;
+  if (!plan?.release || plan.release.holdBack !== undefined) return null;
+  return { ...settings, floorPlan: { ...plan, release: { ...plan.release, holdBack: startingHoldBack(plan) } } };
+}
+
 const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export function validateFloorPlan(c) {

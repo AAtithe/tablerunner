@@ -31,6 +31,7 @@ export async function route(app, method, url, readBody) {
     if (!Array.isArray(body.keys) && !(typeof body.date === 'string' && DATE.test(body.date))) throw httpError(400, 'send keys, or a date (and optional sitting)');
     return app.confirmClosed({ keys: body.keys, date: body.date, sitting: body.sitting });
   }
+  if (key === 'GET /api/coaching') return app.coaching({ weeks: 8 });
   if (key === 'GET /api/late-demand') {
     const weeks = Number(url.searchParams.get('weeks') ?? 8);
     if (!Number.isInteger(weeks) || weeks < 1 || weeks > 52) throw httpError(400, 'weeks must be 1 to 52');

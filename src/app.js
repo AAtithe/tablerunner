@@ -4,6 +4,7 @@ import { reconcile } from './reconcile.js';
 import { runReleases } from './release.js';
 import { addDays, allocatedTables, releaseAt, exposureFor, holdBackFor, weekday } from './allocation.js';
 import { MemoryState, MemoryLock } from './store.js';
+import { buildCoaching } from './coaching.js';
 
 // Wires the sync, releases and reconciliation together and keeps the state
 // the dashboard reads: alerts, activity, last reconciliation.
@@ -133,7 +134,7 @@ export function createApp({
         const done = [];
         for (const k of wanted) {
           if (!released.has(k)) continue;
-          await store.markClosedInOpenTable(k);
+          await store.markClosedInOpenTable(k, clock());
           done.push(k);
         }
         if (done.length) await activity.add('opentable.closed', `Marked ${done.length} table(s) closed in OpenTable: ${done.map((k) => k.split('|').slice(1).join(' ')).join(', ')}${date ? ` on ${date}` : ''}`);
@@ -171,6 +172,19 @@ export function createApp({
         };
       }).sort((a, b) => order.indexOf(a.weekday) - order.indexOf(b.weekday) || a.sitting.localeCompare(b.sitting));
       return { fromDate: tracked.length ? start : null, toDate, weeks, rows: out };
+    },
+
+    // Learned recommendations and team habits. Reads up to 26 weeks of
+    // history; recent weeks weigh most.
+    async coaching({ weeks = 8 } = {}) {
+      const now = clock();
+      const today = now.slice(0, 10);
+      const [bookings, times, allAlerts] = await Promise.all([
+        store.all({ fromDate: addDays(today, -26 * 7), toDate: addDays(today, -1) }),
+        store.eventTimes ? store.eventTimes() : { released: new Map(), closed: new Map() },
+        alerts.all(),
+      ]);
+      return buildCoaching(config, { bookings, times, alerts: allAlerts, now, weeks });
     },
 
     async weekView(fromDate, days = 7) {
