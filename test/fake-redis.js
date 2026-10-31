@@ -42,3 +42,10 @@ export class FakeRedis {
     }
   }
 }
+
+// Everything stored, as one string, to check that no secret is kept in plain text.
+export function dumpRedis(redis) {
+  const flat = (v) => (v instanceof Map ? [...v].map(([k, x]) => [k, flat(x)])
+    : v instanceof Set ? [...v] : Array.isArray(v) ? v.map(flat) : v);
+  return JSON.stringify(flat(redis.data));
+}

@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto';
-import { randomSecret, userError } from './settings.js';
+import { randomSecret, userError, readSecret, MAIL_TOKEN_FIELD } from './settings.js';
+import { encryptSecret } from './secrets.js';
 
 // Outbound email through Postmark: invites to set a password, password
 // reset links and a test message. One Postmark server token for the whole
 // install, set on the Admin panel's Email tab. Postmark only sends from an
 // address or domain verified in the Postmark account (Sender Signatures).
+// The token is stored encrypted under the install keyring.
 const API = 'https://api.postmarkapp.com';
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -24,12 +26,13 @@ export async function checkMailToken(token, fetchImpl = fetch) {
   return (await res.json()).Name ?? '';
 }
 
-export async function sendEmail(mail, { to, subject, html, text }, fetchImpl = fetch) {
+export async function sendEmail(mail, { to, subject, html, text }, { fetchImpl = fetch, keyring }) {
   if (!mail?.serverToken) throw userError(400, 'Email sending is not set up. An admin connects Postmark on the Admin panel, Email tab.');
+  const token = readSecret(mail.serverToken, keyring, MAIL_TOKEN_FIELD, 'Paste the token again on the Admin panel, Email tab.');
   const from = mail.fromName ? `"${mail.fromName.replace(/"/g, '')}" <${mail.from}>` : mail.from;
   const res = await fetchImpl(`${API}/email`, {
     method: 'POST',
-    headers: headers(mail.serverToken),
+    headers: headers(token),
     body: JSON.stringify({ From: from, To: to, Subject: subject, HtmlBody: html, TextBody: text, MessageStream: 'outbound' }),
   });
   let body = {};
@@ -45,7 +48,7 @@ export async function sendEmail(mail, { to, subject, html, text }, fetchImpl = f
 
 // Applies a change to the install's email settings. Checks a new token with
 // Postmark before anything is saved.
-export async function applyMailChange(current = {}, patch, { origin, at, fetchImpl }) {
+export async function applyMailChange(current = {}, patch, { origin, at, fetchImpl, keyring }) {
   if (patch.disconnect) return { mail: undefined, changed: ['email sending disconnected'] };
   const next = { ...current };
   const changed = [];
@@ -69,7 +72,7 @@ export async function applyMailChange(current = {}, patch, { origin, at, fetchIm
   const token = typeof patch.serverToken === 'string' ? patch.serverToken.trim() : '';
   if (token) {
     next.serverName = await checkMailToken(token, fetchImpl);
-    next.serverToken = token;
+    next.serverToken = encryptSecret(token, keyring, MAIL_TOKEN_FIELD);
     next.connectedAt = at;
     changed.push('Postmark sending connected');
   }

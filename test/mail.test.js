@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FakeRedis } from './fake-redis.js';
+import { FakeRedis, dumpRedis } from './fake-redis.js';
 import { createHandler } from '../src/vercel.js';
 
 let now = '2026-11-04T10:00';
@@ -179,4 +179,31 @@ test('overview lists what needs attention, scoped to the user', async () => {
   assert.equal(o.counts.sites, 0);
   assert.equal(o.mail.from, undefined);
   assert.equal((await call('GET', '/api/mail', { token: ca })).statusCode, 403);
+});
+
+test('the sending token is stored encrypted, survives a key rotation, and old plain text is encrypted', async () => {
+  const { call, admin, pm, redis } = await harness();
+  assert.equal((await connect(call, admin)).statusCode, 200);
+  assert.equal(dumpRedis(redis).includes('pm-send'), false, 'never stored in plain text');
+
+  const rotated = await call('PUT', '/api/settings', { token: admin, body: { rotateEncryptionKey: true } });
+  assert.equal(rotated.statusCode, 200, rotated.body);
+  assert.equal((await call('POST', '/api/mail/test', { token: admin })).statusCode, 200);
+  assert.equal(pm.sent.length, 1);
+
+  // An install from before encryption: the token sits in plain text.
+  const saved = JSON.parse(await redis.cmd('GET', 'tr:settings'));
+  await redis.cmd('SET', 'tr:settings', JSON.stringify({ ...saved, mail: { ...saved.mail, serverToken: 'pm-send' } }));
+  assert.equal((await call('POST', '/api/mail/test', { token: admin })).statusCode, 200);
+  assert.equal(pm.sent.length, 2);
+  assert.equal(dumpRedis(redis).includes('pm-send'), false, 'encrypted on the first request');
+});
+
+test('a sending token that cannot be read says how to fix it', async () => {
+  const { call, admin, redis } = await harness();
+  await connect(call, admin);
+  await redis.cmd('DEL', 'tr:keyring');
+  const r = await call('POST', '/api/mail/test', { token: admin });
+  assert.equal(r.statusCode, 400);
+  assert.match(r.json().error, /Postmark sending token cannot be used.*Email tab/);
 });

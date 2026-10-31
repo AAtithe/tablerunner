@@ -1,10 +1,10 @@
 import { route } from './routes.js';
 import { passwordFromHeader, safeEqual } from './auth.js';
 import { ConfigError, createLiveApp } from './live.js';
-import { loadKeyring, saveKeyring, pruneKeyring } from './secrets.js';
+import { loadKeyring, saveKeyring, pruneKeyring, encryptSecret } from './secrets.js';
 import { londonNow } from './clock.js';
 import {
-  SettingsStore, Sessions, isConfigured, rotateEncryptionKey, ensureSetupCode, checkSetupCode, clearSetupCode, initialSettings, applySettingsChange, publicSettings,
+  SettingsStore, Sessions, isConfigured, rotateEncryptionKey, encryptPlainSecrets, readSecret, POSTMARK_TOKEN_FIELD, ensureSetupCode, checkSetupCode, clearSetupCode, initialSettings, applySettingsChange, publicSettings,
   verifyPassword, hashPassword, loginAllowed, recordLoginFailure, userError, inboundUrlFor, withStartingHoldBack,
 } from './settings.js';
 import {
@@ -71,6 +71,14 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
       if (raw.teamPasswordHash || (raw.adminPasswordHash && !settings.adminPasswordHash)) await store.save(settings);
       const configured = isConfigured(settings);
       const audit = new RedisActivity(redis, 'tr:install', { clock });
+      let keyring = await loadKeyring(redis);
+      // Tokens saved in plain text before encryption existed are encrypted
+      // once, on the first request after this version is deployed.
+      const sealed = encryptPlainSecrets(settings, keyring);
+      if (sealed) {
+        settings = sealed;
+        await store.save(settings);
+      }
 
       if (path === '/api/setup-status') {
         if (!configured) await ensureSetupCode(redis, log);
@@ -90,7 +98,7 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
         settings = normaliseSettings(r.settings);
         await store.save(settings);
         await clearSetupCode(redis);
-        if (fresh) await createLiveApp({ redis, settings: siteView(settings, settings.sites[0].id), clock, keyring: await loadKeyring(redis) }).activity.add('settings', 'Table Runner set up');
+        if (fresh) await createLiveApp({ redis, settings: siteView(settings, settings.sites[0].id), clock, keyring }).activity.add('settings', 'Table Runner set up');
         await audit.add('setup', `${fresh ? 'Table Runner set up' : 'Admin access restored with the setup code'}: ${r.user.email} is admin`, { by: 'setup code', clients: [] });
         await redis.cmd('HSET', SIGN_IN_KEY, r.user.id, JSON.stringify({ id: r.user.id, at: clock() }));
         const token = await sessions.create('admin', settings.sessionEpoch, { userId: r.user.id, userEpoch: r.user.epoch });
@@ -138,7 +146,7 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
           ? inviteMessage({ name: issued.user.name, email: issued.user.email, inviter, access: accessNames(current, issued.user), link })
           : resetMessage({ name: issued.user.name, email: issued.user.email, link });
         try {
-          await sendEmail(current.mail, { to: issued.user.email, ...message }, fetchImpl);
+          await sendEmail(current.mail, { to: issued.user.email, ...message }, { fetchImpl, keyring });
         } catch (err) {
           await deleteLink(redis, token);
           throw err;
@@ -191,7 +199,6 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
         return send(res, 200, answer);
       }
 
-      let keyring = await loadKeyring(redis);
       const liveApp = (site) => createLiveApp({ redis, settings: siteView(settings, site.id), clock, keyring });
 
       // Floor plans saved before the OpenTable reserve existed get the
@@ -393,7 +400,7 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
         if (!isAdmin) return send(res, 403, { error: 'Only an admin can set up email sending.' });
         if (path === '/api/mail' && method === 'GET') return send(res, 200, { ...publicMail(settings.mail), suggestedAppUrl: origin });
         if (path === '/api/mail' && method === 'PUT') {
-          const { mail, changed } = await applyMailChange(settings.mail, await readBody(req), { origin, at: clock(), fetchImpl });
+          const { mail, changed } = await applyMailChange(settings.mail, await readBody(req), { origin, at: clock(), fetchImpl, keyring });
           const next = { ...settings, mail };
           if (!mail) delete next.mail;
           await store.save(next);
@@ -402,7 +409,7 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
         }
         if (path === '/api/mail/test' && method === 'POST') {
           if (!principal.email) return send(res, 400, { error: 'Sign in with your own account to send a test to yourself.' });
-          await sendEmail(settings.mail, { to: principal.email, ...testMessage({ name: principal.name, serverName: settings.mail?.serverName ?? '', link: appUrl() }) }, fetchImpl);
+          await sendEmail(settings.mail, { to: principal.email, ...testMessage({ name: principal.name, serverName: settings.mail?.serverName ?? '', link: appUrl() }) }, { fetchImpl, keyring });
           const next = { ...settings, mail: { ...settings.mail, lastTestAt: clock() } };
           await store.save(next);
           await logAdmin('mail', `Test email sent to ${principal.email}`, []);
@@ -426,7 +433,8 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
         if (method === 'PUT') {
           const patch = await readBody(req);
           if (patch.rotateEncryptionKey) {
-            // One key covers every site, so only an admin can replace it. The
+            // One key covers every site and the email token, so only an admin
+            // can replace it. The
             // new key is stored alongside the old, then the re-encrypted
             // settings, then the old key is dropped: the secrets stay
             // readable if this stops part way.
@@ -436,11 +444,11 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
             await store.save(r.settings);
             keyring = pruneKeyring(r.keyring);
             await saveKeyring(redis, keyring);
-            await logAdmin('settings', `Encryption key replaced; ${r.count} SevenRooms client secret(s) re-encrypted`, []);
+            await logAdmin('settings', `Encryption key replaced; ${r.count} saved secret(s) re-encrypted`, []);
             return send(res, 200, { ...withSite(r.settings, siteView(r.settings, site.id)), changed: ['encryption key'] });
           }
           const { settings: nextView, changed } = await applySettingsChange(view, patch, { keyring });
-          await applyPostmark({ patch, prev: view, next: nextView, changed, origin, clock, fetchImpl });
+          await applyPostmark({ patch, prev: view, next: nextView, changed, origin, clock, fetchImpl, keyring });
           const next = putSiteView(settings, site.id, nextView);
           await store.save(next);
           if (changed.length) {
@@ -534,7 +542,7 @@ function meFor(p) {
 // Connects Postmark when a token is given, and keeps it pointed at the
 // current webhook key when the key is regenerated. Runs before anything is
 // saved, so a Postmark failure leaves the settings unchanged.
-async function applyPostmark({ patch, prev, next, changed, origin, clock, fetchImpl }) {
+async function applyPostmark({ patch, prev, next, changed, origin, clock, fetchImpl, keyring }) {
   if (patch.disconnectPostmark && next.postmark) {
     delete next.postmark;
     changed.push('Postmark disconnected');
@@ -542,13 +550,16 @@ async function applyPostmark({ patch, prev, next, changed, origin, clock, fetchI
   }
   const newToken = typeof patch.postmarkServerToken === 'string' ? patch.postmarkServerToken.trim() : '';
   const keyChanged = next.inboundSecret !== prev.inboundSecret;
-  const token = newToken || (keyChanged ? next.postmark?.serverToken : '');
+  const saved = keyChanged && next.postmark?.serverToken
+    ? readSecret(next.postmark.serverToken, keyring, POSTMARK_TOKEN_FIELD, 'Paste the Postmark Server API token again under OpenTable emails in, then try again.')
+    : '';
+  const token = newToken || saved;
   if (!token) return;
 
   const hookUrl = inboundUrlFor(next, origin);
   await assertPublic(origin, fetchImpl);
   const server = await connectPostmark({ token, hookUrl, fetchImpl });
-  next.postmark = { serverToken: token, ...server, hookUrl, connectedAt: clock() };
+  next.postmark = { serverToken: encryptSecret(token, keyring, POSTMARK_TOKEN_FIELD), ...server, hookUrl, connectedAt: clock() };
   changed.push(newToken ? 'Postmark connected' : 'Postmark webhook updated');
 }
 

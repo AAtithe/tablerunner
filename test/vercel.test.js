@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FakeRedis } from './fake-redis.js';
+import { FakeRedis, dumpRedis } from './fake-redis.js';
 import { createHandler } from '../src/vercel.js';
 import { redisFromEnv } from '../src/live.js';
 
@@ -264,7 +264,7 @@ function fakePostmark({ token = 'pm-token', protectedSite = false } = {}) {
 
 test('connecting Postmark points its webhook here and shows the forwarding address', async () => {
   const pm = fakePostmark();
-  const { call, setUp } = harness({ fetchImpl: pm.fetchImpl });
+  const { call, setUp, redis } = harness({ fetchImpl: pm.fetchImpl });
   const token = await setUp();
 
   const bad = await call('PUT', '/api/settings', { token, body: { postmarkServerToken: 'wrong' } });
@@ -280,6 +280,7 @@ test('connecting Postmark points its webhook here and shows the forwarding addre
   assert.equal(s.postmark.pointsHere, true);
   assert.equal(pm.server.InboundHookUrl, s.inboundUrl);
   assert.equal(JSON.stringify(s).includes('pm-token'), false);
+  assert.equal(dumpRedis(redis).includes('pm-token'), false, 'never stored in plain text');
 
   // Regenerating the key re-points Postmark, so emails keep flowing.
   const regen = (await call('PUT', '/api/settings', { token, body: { regenerateInboundSecret: true } })).json();
@@ -315,4 +316,21 @@ test('if Postmark fails during a key change, the old key stays in force', async 
   assert.equal(r.statusCode, 400);
   assert.equal((await call('GET', '/api/settings', { token })).json().inboundUrl, before);
   assert.equal(pm.server.InboundHookUrl, before);
+});
+
+test('a Postmark inbound token saved in plain text is encrypted and still re-points the webhook', async () => {
+  const pm = fakePostmark();
+  const { call, setUp, redis } = harness({ fetchImpl: pm.fetchImpl });
+  const token = await setUp();
+  await call('PUT', '/api/settings', { token, body: { postmarkServerToken: 'pm-token' } });
+
+  const saved = JSON.parse(await redis.cmd('GET', 'tr:settings'));
+  saved.sites[0].postmark.serverToken = 'pm-token';
+  await redis.cmd('SET', 'tr:settings', JSON.stringify(saved));
+
+  await call('PUT', '/api/settings', { token, body: { rotateEncryptionKey: true } });
+  assert.equal(dumpRedis(redis).includes('pm-token'), false);
+  const regen = (await call('PUT', '/api/settings', { token, body: { regenerateInboundSecret: true } })).json();
+  assert.deepEqual(regen.changed, ['email webhook key', 'Postmark webhook updated']);
+  assert.equal(pm.server.InboundHookUrl, regen.inboundUrl);
 });
