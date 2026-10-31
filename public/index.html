@@ -152,23 +152,26 @@
 <main>
   <form class="panel login" id="setup" hidden>
     <h2 style="margin:0">Set up Table Runner</h2>
-    <p class="hint" style="margin:0">This is a new install. The setup code is in the Vercel logs: open the tablerunner project in Vercel, choose Logs, and search for "setup code".</p>
+    <p class="hint" style="margin:0">This install has no admin yet. The setup code is in the Vercel logs: open the tablerunner project in Vercel, choose Logs, and search for "setup code". You become the first admin; everyone else gets their own sign-in on the Users screen.</p>
     <label for="setup-code" class="muted">Setup code</label>
     <input id="setup-code" autocomplete="off" required>
-    <label for="setup-team" class="muted">Team password, for hosts and managers (10 characters or more)</label>
-    <input type="password" id="setup-team" autocomplete="new-password" minlength="10" required>
-    <label for="setup-admin" class="muted">Admin password, for settings (10 characters or more, different)</label>
-    <input type="password" id="setup-admin" autocomplete="new-password" minlength="10" required>
-    <button class="primary" type="submit">Set up</button>
+    <label for="setup-name" class="muted">Your name</label>
+    <input id="setup-name" autocomplete="name" required maxlength="80">
+    <label for="setup-email" class="muted">Your email (your sign-in)</label>
+    <input type="email" id="setup-email" autocomplete="username" required>
+    <label for="setup-password" class="muted">Your password (10 characters or more)</label>
+    <input type="password" id="setup-password" autocomplete="new-password" minlength="10" required>
+    <button class="primary" type="submit">Create admin and set up</button>
     <div class="error" id="setup-error"></div>
   </form>
   <form class="panel login" id="login" hidden>
     <h2 style="margin:0">Sign in</h2>
     <label for="login-email" class="muted">Email</label>
-    <input type="email" id="login-email" autocomplete="username" placeholder="Leave blank to use a shared password">
+    <input type="email" id="login-email" autocomplete="username" required>
     <label for="password" class="muted">Password</label>
     <input type="password" id="password" autocomplete="current-password" required>
     <button class="primary" type="submit">Sign in</button>
+    <div class="hint" id="login-old-admin" hidden>Upgrading from shared passwords: until a named admin exists, the old admin password still works once. <button type="button" id="login-use-old">Use the old admin password</button></div>
     <div class="error" id="login-error"></div>
   </form>
   <section class="panel" id="settings" hidden>
@@ -213,14 +216,6 @@
         <input id="s-client-secret" type="password" autocomplete="new-password">
         <label for="s-venue-id">Venue ID</label>
         <input id="s-venue-id" autocomplete="off">
-      </fieldset>
-      <fieldset id="s-shared-passwords">
-        <legend>Shared passwords (every client and site)</legend>
-        <label for="s-team">New team password</label>
-        <input id="s-team" type="password" autocomplete="new-password" minlength="10">
-        <label for="s-admin">New admin password</label>
-        <input id="s-admin" type="password" autocomplete="new-password" minlength="10">
-        <div class="hint">Leave blank to keep. Changing either signs everyone else out.</div>
       </fieldset>
       <fieldset class="wide">
         <legend>Floor plan and OpenTable allocation</legend>
@@ -417,6 +412,9 @@ function renderStatus(s) {
     : !s.mode?.sevenRooms?.live
       ? '<div class="banner">Shadow mode. OpenTable bookings are processed and shown here, but nothing is written to SevenRooms. Hosts keep working exactly as they do today.</div>'
       : '';
+  if (s.user?.kind === 'legacy') {
+    $('demo').innerHTML += '<div class="banner">You are signed in with the old shared admin password, which is being retired. Open Users and add yourself as an admin with your own email. The old password stops working the moment you do, and you sign back in with your email.</div>';
+  }
   const rec = s.lastReconciliation;
   const m = (k) => s.mode[k] ?? { live: false, value: 'Unknown', detail: '' };
   const conn = (label, k) => tile(label, m(k).value, m(k).detail, m(k).live ? 'ok' : 'warn');
@@ -491,6 +489,8 @@ function renderActivity(items) {
 }
 
 function showLogin(message) {
+  $('login-email').disabled = false;
+  $('login-email').required = true;
   document.body.dataset.auth = 'needed';
   $('login').hidden = false;
   $('login-error').textContent = message || '';
@@ -516,16 +516,24 @@ $('login').onsubmit = async (e) => {
   }
 };
 
+// Only offered while an upgraded install has no named admin yet.
+$('login-use-old').onclick = () => {
+  const email = $('login-email');
+  email.required = false; email.value = ''; email.disabled = true;
+  $('login-old-admin').hidden = true;
+  $('password').focus();
+};
+
 $('setup').onsubmit = async (e) => {
   e.preventDefault();
   try {
     const r = await api('/api/setup', { method: 'POST', json: {
-      code: $('setup-code').value, teamPassword: $('setup-team').value, adminPassword: $('setup-admin').value,
+      code: $('setup-code').value, name: $('setup-name').value, email: $('setup-email').value, password: $('setup-password').value,
     } });
     setToken(r.token);
     $('setup').hidden = true;
     await refresh();
-    openSettings('Set up. Copy the webhook address into Postmark, then paste in the real floor plan.');
+    openSettings('Set up, and you are the admin. Connect Postmark and paste the real floor plan here, then add your team on the Users screen.');
   } catch (err) {
     $('setup-error').textContent = err.message;
   }
@@ -545,7 +553,6 @@ const msg = (text, ok) => { $('settings-msg').textContent = text; $('settings-ms
 
 function fillSettings(s) {
   $('settings-site').textContent = s.site ? `${s.site.clientName ? `${s.site.clientName} / ` : ''}${s.site.name} (${s.site.id})` : '';
-  $('s-shared-passwords').hidden = !s.canChangeSharedPasswords;
   $('s-inbound').value = s.inboundUrl;
   const pm = s.postmark;
   $('pm-status').innerHTML = pm.connected
@@ -572,7 +579,6 @@ function fillSettings(s) {
   $('s-venue-id').value = s.sevenRooms.venueId;
   $('s-client-secret').value = '';
   $('s-client-secret').placeholder = s.sevenRooms.clientSecretSet ? 'Saved. Type a new one to replace it.' : '';
-  $('s-team').value = ''; $('s-admin').value = '';
   loadedFloor = JSON.stringify(s.floorPlan, null, 2);
   $('s-floor').value = loadedFloor;
 }
@@ -614,8 +620,6 @@ $('settings-form').onsubmit = (e) => {
     sevenRooms: { mode: $('s-mode').value, clientId: $('s-client-id').value, venueId: $('s-venue-id').value },
   };
   if ($('s-client-secret').value) patch.sevenRooms.clientSecret = $('s-client-secret').value;
-  if ($('s-team').value) patch.teamPassword = $('s-team').value;
-  if ($('s-admin').value) patch.adminPassword = $('s-admin').value;
   if ($('s-floor').value.trim() !== loadedFloor.trim()) {
     try { patch.floorPlan = JSON.parse($('s-floor').value); }
     catch (err) { return msg(`Floor plan is not valid JSON: ${err.message}`, false); }
@@ -1058,6 +1062,15 @@ $('user-form').onsubmit = async (e) => {
       await openUsers(`${body.name} saved.`);
     } else {
       await api('/api/users', { method: 'POST', json: body });
+      if (me?.kind === 'legacy' && body.role === 'admin') {
+        // The old admin password has just been retired; sign in properly.
+        setToken(null);
+        closePanels();
+        $('login-old-admin').hidden = true;
+        showLogin(`Named admin ${body.email} created. The old admin password is now retired: sign in with that email.`);
+        $('login-email').value = body.email;
+        return;
+      }
       await openUsers(`${body.name} added. They sign in with ${body.email} and the password you set.`);
     }
   } catch (err) { note('users-msg', err.message, false); }
@@ -1128,6 +1141,7 @@ async function boot() {
     try {
       const s = await api('/api/setup-status');
       if (s.needsSetup) return showSetup();
+      $('login-old-admin').hidden = !s.oldAdminPassword;
     } catch (err) {
       // The local demo server has no setup step; anything else is a real problem.
       if (!/not found/i.test(err.message)) {

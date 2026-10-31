@@ -3,11 +3,11 @@ import { passwordFromHeader, safeEqual } from './auth.js';
 import { ConfigError, createLiveApp } from './live.js';
 import { londonNow } from './clock.js';
 import {
-  SettingsStore, Sessions, isConfigured, ensureSetupCode, completeSetup, applySettingsChange, publicSettings,
+  SettingsStore, Sessions, isConfigured, ensureSetupCode, checkSetupCode, clearSetupCode, initialSettings, applySettingsChange, publicSettings,
   verifyPassword, hashPassword, loginAllowed, recordLoginFailure, userError, inboundUrlFor,
 } from './settings.js';
 import {
-  normaliseSettings, siteView, putSiteView, findSite, findClient, findUser, findUserByEmail, sharedPrincipal, userPrincipal,
+  normaliseSettings, siteView, putSiteView, findSite, findClient, findUser, findUserByEmail, legacyAdminPrincipal, userPrincipal,
   canSeeSite, visibleSites, canAct, canManage, canManageSite, canManageUser, managedClients, siteLive,
   publicUser, publicSite, publicClient, createUser, updateUser, deleteUser, createSite, updateSite,
   createClient, updateClient, deleteClient, ROLES,
@@ -25,8 +25,8 @@ const DUMMY_HASH = hashPassword('table-runner-no-such-user');
 // app's own storage; nothing is configured through environment variables.
 //
 //   /api/health, /api/setup-status   open; report only whether set up
-//   /api/setup                       one time, needs the code from the logs
-//   /api/login, /api/logout          email and password, or a shared password -> session token
+//   /api/setup                       creates the first named admin; needs the code from the logs
+//   /api/login, /api/logout          email and password -> session token
 //   /api/cron/*                      scheduled jobs for every active site; time-gated and idempotent
 //   /api/inbound-email               email webhook, ?key= identifies the site
 //   /api/me, /api/me/password        the signed-in user
@@ -57,22 +57,35 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
       const redis = getRedis();
       const store = new SettingsStore(redis);
       const sessions = new Sessions(redis);
-      let settings = normaliseSettings(await store.get());
+      const raw = await store.get();
+      let settings = normaliseSettings(raw);
+      // Retired shared password hashes are removed from storage, not just ignored.
+      if (raw.teamPasswordHash || (raw.adminPasswordHash && !settings.adminPasswordHash)) await store.save(settings);
       const configured = isConfigured(settings);
       const audit = new RedisActivity(redis, 'tr:install', { clock });
 
       if (path === '/api/setup-status') {
         if (!configured) await ensureSetupCode(redis, log);
-        return send(res, 200, { needsSetup: !configured });
+        return send(res, 200, { needsSetup: !configured, oldAdminPassword: Boolean(settings.adminPasswordHash) });
       }
 
+      // Creates the first named admin. On an existing install with no active
+      // admin left, the same code is the way back in, and every client, site
+      // and user is kept.
       if (path === '/api/setup' && method === 'POST') {
-        settings = normaliseSettings(await completeSetup(redis, await readBody(req)));
+        if (configured) return send(res, 409, { error: 'Table Runner is already set up.' });
+        const body = await readBody(req);
+        await checkSetupCode(redis, body.code);
+        const fresh = !settings.sites.length;
+        const base = fresh ? normaliseSettings(initialSettings()) : settings;
+        const r = await createUser(base, { name: body.name, email: body.email, password: body.password, role: 'admin' }, { at: clock(), actor: { role: 'admin' } });
+        settings = normaliseSettings(r.settings);
         await store.save(settings);
-        const site = settings.sites[0];
-        await createLiveApp({ redis, settings: siteView(settings, site.id), clock }).activity.add('settings', 'Table Runner set up');
-        await audit.add('setup', 'Table Runner set up', { by: 'setup code' });
-        return send(res, 200, { token: await sessions.create('admin', settings.sessionEpoch), role: 'admin' });
+        await clearSetupCode(redis);
+        if (fresh) await createLiveApp({ redis, settings: siteView(settings, settings.sites[0].id), clock }).activity.add('settings', 'Table Runner set up');
+        await audit.add('setup', `${fresh ? 'Table Runner set up' : 'Admin access restored with the setup code'}: ${r.user.email} is admin`, { by: 'setup code', clients: [] });
+        const token = await sessions.create('admin', settings.sessionEpoch, { userId: r.user.id, userEpoch: r.user.epoch });
+        return send(res, 200, { token, role: 'admin', name: r.user.name });
       }
 
       if (!configured) return send(res, 503, { error: 'Table Runner is not set up yet. Open the dashboard to set it up.' });
@@ -93,13 +106,13 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
           const token = await sessions.create(user.role, settings.sessionEpoch, { userId: user.id, userEpoch: user.epoch });
           return send(res, 200, { token, role: user.role, name: user.name });
         }
-        const role = (await verifyPassword(password, settings.adminPasswordHash)) ? 'admin'
-          : (await verifyPassword(password, settings.teamPasswordHash)) ? 'team' : null;
-        if (!role) {
+        // No email: only the old admin password of an install that has no
+        // named admin yet. Shared passwords are otherwise retired.
+        if (!settings.adminPasswordHash || !(await verifyPassword(password, settings.adminPasswordHash))) {
           await recordLoginFailure(redis, address);
-          return send(res, 401, { error: 'That password was not accepted.' });
+          return send(res, 401, { error: 'Enter your email and password. Shared passwords are retired; ask an admin for your own sign-in.' });
         }
-        return send(res, 200, { token: await sessions.create(role, settings.sessionEpoch), role });
+        return send(res, 200, { token: await sessions.create('admin', settings.sessionEpoch), role: 'admin', legacy: true });
       }
 
       const liveApp = (site) => createLiveApp({ redis, settings: siteView(settings, site.id), clock });
@@ -263,12 +276,10 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
         if (!canManageSite(principal, site)) return send(res, 403, { error: 'Only an admin, or a client admin for this site, can view or change its settings.' });
         const origin = `${req.headers['x-forwarded-proto'] ?? 'https'}://${req.headers['x-forwarded-host'] ?? req.headers.host}`;
         const view = siteView(settings, site.id);
-        const withSite = (s, v) => ({ site: publicSite(findSite(s, site.id), s), canChangeSharedPasswords: isAdmin, ...publicSettings(v, origin) });
+        const withSite = (s, v) => ({ site: publicSite(findSite(s, site.id), s), ...publicSettings(v, origin) });
         if (method === 'GET') return send(res, 200, withSite(settings, view));
         if (method === 'PUT') {
           const patch = await readBody(req);
-          // Shared passwords cover every client, so only an admin sets them.
-          if (!isAdmin && (patch.teamPassword || patch.adminPassword)) return send(res, 403, { error: 'Only an admin can change the shared passwords.' });
           const { settings: nextView, changed } = await applySettingsChange(view, patch);
           await applyPostmark({ patch, prev: view, next: nextView, changed, origin, clock, fetchImpl });
           const next = putSiteView(settings, site.id, nextView);
@@ -278,8 +289,6 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
             await logAdmin('settings', `${site.name}: settings changed: ${changed.join(', ')}`, [site.clientId]);
           }
           const body = { ...withSite(next, nextView), changed };
-          // A shared password change signs everyone out; keep this admin signed in.
-          if (next.sessionEpoch !== settings.sessionEpoch) body.token = await newTokenFor(next);
           return send(res, 200, body);
         }
         return send(res, 405, { error: 'method not allowed' });
@@ -304,7 +313,7 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
 // named user who was disabled, deleted, or had their access changed.
 function principalFor(settings, session) {
   if (!session) return null;
-  if (!session.userId) return sharedPrincipal(session.role);
+  if (!session.userId) return settings.adminPasswordHash && session.role === 'admin' ? legacyAdminPrincipal() : null;
   const user = findUser(settings, session.userId);
   if (!user || !user.active || user.epoch !== session.userEpoch) return null;
   return userPrincipal(user);

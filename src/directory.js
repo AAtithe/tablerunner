@@ -16,8 +16,9 @@ import { exampleConfig } from '../config/allocation.example.js';
 //
 // A user is a named sign-in (email and password) with a role, and access to
 // whole clients (every site of that client, including future ones) and/or
-// individual sites. The shared team and admin passwords from first-run setup
-// keep working alongside named users.
+// individual sites. Everyone signs in as a named user. The shared team and
+// admin passwords of earlier versions are retired: the team password at once,
+// the admin password as soon as a named admin exists.
 
 export const ROLES = {
   admin: 'Admin: every client and site, settings, users, clients and sites',
@@ -57,6 +58,10 @@ export function normaliseSettings(s) {
     out.sites = out.sites.map((x) => (x.clientId ? x : { ...x, clientId: FIRST_CLIENT.id }));
   }
   out.users = (Array.isArray(out.users) ? out.users : []).map((u) => (Array.isArray(u.clients) ? u : { ...u, clients: [] }));
+  // Retired shared passwords. The old admin password survives only until a
+  // named admin exists, so an existing install can create one.
+  delete out.teamPasswordHash;
+  if (activeAdmins(out).length) delete out.adminPasswordHash;
   return out;
 }
 
@@ -74,6 +79,7 @@ export function newSite({ id, name, clientId, at }) {
   };
 }
 
+export const activeAdmins = (s) => (s.users ?? []).filter((u) => u.role === 'admin' && u.active);
 export const findSite = (s, id) => s.sites.find((x) => x.id === id) ?? null;
 export const findClient = (s, id) => s.clients.find((x) => x.id === id) ?? null;
 export const findUser = (s, id) => s.users.find((x) => x.id === id) ?? null;
@@ -111,11 +117,10 @@ export function putSiteView(settings, siteId, view) {
 
 // ---- Who is signed in
 
-// Shared passwords: admin sees everything; team works every site with a
-// manager's rights.
-export function sharedPrincipal(role) {
-  const admin = role === 'admin';
-  return { kind: 'shared', role: admin ? 'admin' : 'team', name: admin ? 'Admin password' : 'Team password', sites: ['*'], clients: [] };
+// The retiring admin password of an install from before named users. It
+// has admin rights only until the first named admin is created.
+export function legacyAdminPrincipal() {
+  return { kind: 'legacy', role: 'admin', name: 'Old admin password', sites: ['*'], clients: [] };
 }
 
 export function userPrincipal(user) {
@@ -137,7 +142,7 @@ export function canSeeSite(p, site, settings) {
   return canManageSite(p, site) || siteLive(settings, site);
 }
 export const visibleSites = (p, settings) => settings.sites.filter((x) => canSeeSite(p, x, settings));
-export const canAct = (p) => ['admin', 'client_admin', 'manager', 'team'].includes(p.role);
+export const canAct = (p) => ['admin', 'client_admin', 'manager'].includes(p.role);
 
 // Who may manage what. Admins manage everything; client admins manage their
 // own clients, those clients' sites, and users whose access lies wholly
@@ -261,6 +266,11 @@ export async function updateUser(settings, id, body, { at, actor }) {
   if (self && body.active === false) errors.push('You cannot disable your own account.');
   if (self && body.role !== undefined && body.role !== user.role && ['admin', 'client_admin'].includes(user.role)) errors.push('You cannot change your own role.');
   if (self && accessTouched && user.role === 'client_admin' && !sameList(access.clients, user.clients)) errors.push('You cannot change your own clients.');
+  // Someone must always be able to manage the install.
+  const staysAdmin = (body.role ?? user.role) === 'admin' && (body.active === undefined ? user.active : Boolean(body.active));
+  if (user.role === 'admin' && user.active && !staysAdmin && activeAdmins(settings).length === 1) {
+    errors.push(`${user.name} is the only active admin. Make someone else an admin first.`);
+  }
   if (errors.length) throw userError(400, errors.join(' '));
 
   const next = { ...user };
@@ -290,6 +300,7 @@ export function deleteUser(settings, id, { actor }) {
   if (!user) throw userError(404, 'User not found.');
   if (actor.kind === 'user' && actor.userId === id) throw userError(400, 'You cannot delete your own account.');
   if (!canManageUser(actor, user, settings)) throw userError(403, 'You cannot delete this user.');
+  if (user.role === 'admin' && user.active && activeAdmins(settings).length === 1) throw userError(400, `${user.name} is the only active admin. Make someone else an admin first.`);
   return {
     settings: { ...settings, users: settings.users.filter((u) => u.id !== id) },
     clients: clientsOfUser(settings, user),

@@ -4,7 +4,6 @@ import { FakeRedis } from './fake-redis.js';
 import { createHandler } from '../src/vercel.js';
 
 const clock = () => '2026-11-04T10:00';
-const TEAM = 'team-password-1';
 const ADMIN = 'admin-password-1';
 
 function res() {
@@ -26,7 +25,7 @@ async function harness() {
   };
   await call('GET', '/api/setup-status');
   const code = logs.at(-1).split(': ')[1];
-  const admin = (await call('POST', '/api/setup', { body: { code, teamPassword: TEAM, adminPassword: ADMIN } })).json().token;
+  const admin = (await call('POST', '/api/setup', { body: { code, name: 'WS Admin', email: 'admin@ws.co', password: ADMIN } })).json().token;
   const login = async (email, password) => call('POST', '/api/login', { body: { email, password } });
   return { redis, call, admin, login };
 }
@@ -145,7 +144,7 @@ test('changing or disabling a user ends only that user\'s sessions', async () =>
   assert.equal((await login('b@venue.co', 'b-password-2')).statusCode, 200);
 
   await call('DELETE', `/api/users/${a.id}`, { token: admin });
-  assert.equal((await call('GET', '/api/users', { token: admin })).json().users.length, 1);
+  assert.equal((await call('GET', '/api/users', { token: admin })).json().users.length, 2);
 });
 
 test('an admin user cannot lock themselves out', async () => {
@@ -156,10 +155,7 @@ test('an admin user cannot lock themselves out', async () => {
   assert.match((await call('PUT', `/api/users/${u.id}`, { token: t, body: { active: false } })).json().error, /your own account/);
   assert.match((await call('PUT', `/api/users/${u.id}`, { token: t, body: { role: 'viewer', sites: ['*'] } })).json().error, /own role/);
   assert.match((await call('DELETE', `/api/users/${u.id}`, { token: t })).json().error, /your own account/);
-  // Settings saved by a named admin keep them signed in after a shared password change.
-  const r = (await call('PUT', '/api/settings', { token: t, body: { teamPassword: 'new-team-password' } })).json();
-  assert.equal((await call('GET', '/api/me', { token: r.token })).json().email, 'owner@ws.co');
-  assert.equal((await call('POST', '/api/login', { body: { password: TEAM } })).statusCode, 401);
+  assert.equal((await call('POST', '/api/login', { body: { password: ADMIN } })).statusCode, 401);
 });
 
 test('clients group sites; a client admin manages only their own client', async () => {
@@ -191,7 +187,7 @@ test('clients group sites; a client admin manages only their own client', async 
   assert.equal(me.canManage, true);
   assert.equal((await call('GET', '/api/settings?site=canteen', { token: t })).statusCode, 200);
   assert.equal((await call('GET', '/api/settings?site=soho', { token: t })).statusCode, 404);
-  assert.equal((await call('PUT', '/api/settings', { token: t, body: { teamPassword: 'another-team-pw' } })).statusCode, 403);
+  assert.equal((await call('PUT', '/api/settings', { token: t, body: { teamPassword: 'another-team-pw' } })).statusCode, 400);
 
   // Sites: add to their own client only, never move one away.
   assert.equal((await call('POST', '/api/sites', { token: t, body: { id: 'loft', name: 'Loft', clientId: 'client-1' } })).statusCode, 200);

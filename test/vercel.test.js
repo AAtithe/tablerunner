@@ -5,8 +5,8 @@ import { createHandler } from '../src/vercel.js';
 import { redisFromEnv } from '../src/live.js';
 
 const clock = () => '2026-11-04T10:00';
-const TEAM = 'team-password-1';
-const ADMIN = 'admin-password-1';
+const ADMIN = { name: 'Tom Admin', email: 'admin@ws.co', password: 'admin-password-1' };
+const VIEWER = { name: 'Host', email: 'host@venue.co', password: 'viewer-pass-1' };
 
 function res() {
   const r = { statusCode: 0, headers: {}, body: '' };
@@ -28,65 +28,72 @@ function harness({ fetchImpl } = {}) {
   const setupCode = () => logs.at(-1).split(': ')[1];
   async function setUp() {
     await call('GET', '/api/setup-status');
-    const r = await call('POST', '/api/setup', { body: { code: setupCode(), teamPassword: TEAM, adminPassword: ADMIN } });
+    const r = await call('POST', '/api/setup', { body: { code: setupCode(), ...ADMIN } });
     assert.equal(r.statusCode, 200, r.body);
     return r.json().token;
   }
-  return { redis, call, logs, setupCode, setUp };
+  const login = (u) => call('POST', '/api/login', { body: { email: u.email, password: u.password } });
+  return { redis, call, logs, setupCode, setUp, login };
 }
 
-test('a fresh install needs the setup code from the logs', async () => {
-  const { call, logs, setupCode } = harness();
+test('a fresh install needs the setup code from the logs and creates a named admin', async () => {
+  const { call, logs, setupCode, login } = harness();
   assert.deepEqual((await call('GET', '/api/health')).json(), { ok: true, setUp: false });
-  assert.deepEqual((await call('GET', '/api/setup-status')).json(), { needsSetup: true });
+  assert.deepEqual((await call('GET', '/api/setup-status')).json(), { needsSetup: true, oldAdminPassword: false });
   assert.match(logs[0], /^Table Runner setup code: /);
 
   assert.equal((await call('GET', '/api/status')).statusCode, 503);
-  const wrong = await call('POST', '/api/setup', { body: { code: 'guess', teamPassword: TEAM, adminPassword: ADMIN } });
+  const wrong = await call('POST', '/api/setup', { body: { code: 'guess', ...ADMIN } });
   assert.equal(wrong.statusCode, 403);
-  const weak = await call('POST', '/api/setup', { body: { code: setupCode(), teamPassword: 'short', adminPassword: ADMIN } });
+  const weak = await call('POST', '/api/setup', { body: { code: setupCode(), ...ADMIN, password: 'short' } });
   assert.equal(weak.statusCode, 400);
 
-  const ok = await call('POST', '/api/setup', { body: { code: setupCode(), teamPassword: TEAM, adminPassword: ADMIN } });
+  const ok = await call('POST', '/api/setup', { body: { code: setupCode(), ...ADMIN } });
   assert.equal(ok.json().role, 'admin');
   // The code is single use.
-  assert.equal((await call('POST', '/api/setup', { body: { code: setupCode(), teamPassword: TEAM, adminPassword: ADMIN } })).statusCode, 409);
-  assert.deepEqual((await call('GET', '/api/setup-status')).json(), { needsSetup: false });
+  assert.equal((await call('POST', '/api/setup', { body: { code: setupCode(), ...ADMIN } })).statusCode, 409);
+  assert.deepEqual((await call('GET', '/api/setup-status')).json(), { needsSetup: false, oldAdminPassword: false });
+  const me = (await call('GET', '/api/me', { token: ok.json().token })).json();
+  assert.equal(me.email, 'admin@ws.co');
+  assert.equal((await login(ADMIN)).statusCode, 200);
 });
 
-test('team and admin sign in; only admin sees settings; no secrets leak', async () => {
-  const { call, setUp, redis } = harness();
-  await setUp();
+test('named users sign in; only admin sees settings; no secrets leak; no shared passwords', async () => {
+  const { call, setUp, redis, login } = harness();
+  const token = await setUp();
+  await call('POST', '/api/users', { token, body: { ...VIEWER, role: 'viewer', clients: ['client-1'] } });
   assert.equal((await call('GET', '/api/status')).statusCode, 401);
-  assert.equal((await call('POST', '/api/login', { body: { password: 'nope' } })).statusCode, 401);
+  assert.equal((await call('POST', '/api/login', { body: { password: ADMIN.password } })).statusCode, 401);
 
-  const team = (await call('POST', '/api/login', { body: { password: TEAM } })).json();
-  assert.equal(team.role, 'team');
-  const status = await call('GET', '/api/index?route=status', { token: team.token });
-  assert.equal(status.json().role, 'team');
+  const viewer = (await login(VIEWER)).json();
+  assert.equal(viewer.role, 'viewer');
+  const status = await call('GET', '/api/index?route=status', { token: viewer.token });
+  assert.equal(status.json().role, 'viewer');
   assert.equal(status.json().venueName, 'Broadcaster');
-  assert.equal((await call('GET', '/api/settings', { token: team.token })).statusCode, 403);
+  assert.equal((await call('GET', '/api/settings', { token: viewer.token })).statusCode, 403);
 
-  const admin = (await call('POST', '/api/login', { body: { password: ADMIN } })).json();
+  const admin = (await login(ADMIN)).json();
   const settings = (await call('GET', '/api/settings', { token: admin.token })).json();
   assert.match(settings.inboundUrl, /^https:\/\/tr\.example\/api\/inbound-email\?key=.{20,}$/);
   assert.equal(JSON.stringify(settings).includes('Hash'), false);
+  assert.match((await call('PUT', '/api/settings', { token: admin.token, body: { teamPassword: 'new-team-password' } })).json().error, /retired/);
 
   // Stored passwords are hashes, never plain text.
   const raw = await redis.cmd('GET', 'tr:settings');
-  assert.equal(raw.includes(TEAM) || raw.includes(ADMIN), false);
+  assert.equal(raw.includes(ADMIN.password) || raw.includes(VIEWER.password), false);
 
-  await call('POST', '/api/logout', { token: team.token });
-  assert.equal((await call('GET', '/api/status', { token: team.token })).statusCode, 401);
+  await call('POST', '/api/logout', { token: viewer.token });
+  assert.equal((await call('GET', '/api/status', { token: viewer.token })).statusCode, 401);
 });
 
 test('sign-in is limited to 10 failures per address', async () => {
   const { call, setUp } = harness();
   await setUp();
   const headers = { 'x-forwarded-for': '203.0.113.9' };
-  for (let i = 0; i < 10; i++) await call('POST', '/api/login', { body: { password: 'x' }, headers });
-  assert.equal((await call('POST', '/api/login', { body: { password: TEAM }, headers })).statusCode, 429);
-  assert.equal((await call('POST', '/api/login', { body: { password: TEAM }, headers: { 'x-forwarded-for': '198.51.100.1' } })).statusCode, 200);
+  const body = { email: ADMIN.email, password: ADMIN.password };
+  for (let i = 0; i < 10; i++) await call('POST', '/api/login', { body: { email: ADMIN.email, password: 'x' }, headers });
+  assert.equal((await call('POST', '/api/login', { body, headers })).statusCode, 429);
+  assert.equal((await call('POST', '/api/login', { body, headers: { 'x-forwarded-for': '198.51.100.1' } })).statusCode, 200);
 });
 
 test('settings validate, log changes and refuse live SevenRooms until it exists', async () => {
@@ -123,17 +130,52 @@ test('settings validate, log changes and refuse live SevenRooms until it exists'
   assert.equal(JSON.stringify(activity).includes('s3cret'), false);
 });
 
-test('changing a password signs everyone else out', async () => {
-  const { call, setUp } = harness();
-  const admin = await setUp();
-  const team = (await call('POST', '/api/login', { body: { password: TEAM } })).json().token;
-  const r = await call('PUT', '/api/settings', { token: admin, body: { teamPassword: 'new-team-password' } });
+test('an install from before named users: team password retired, old admin password works until a named admin exists', async () => {
+  const { call, redis, login } = harness();
+  const { hashPassword } = await import('../src/settings.js');
+  const { exampleConfig } = await import('../config/allocation.example.js');
+  await redis.cmd('SET', 'tr:settings', JSON.stringify({
+    teamPasswordHash: await hashPassword('old-team-password'),
+    adminPasswordHash: await hashPassword('old-admin-password'),
+    sessionEpoch: 3, inboundSecret: 'k'.repeat(32), alertWebhookUrl: '',
+    sevenRooms: { mode: 'shadow', clientId: '', clientSecret: '', venueId: '' }, floorPlan: exampleConfig,
+  }));
+  assert.deepEqual((await call('GET', '/api/setup-status')).json(), { needsSetup: false, oldAdminPassword: true });
+  // The team password is gone from storage and refused.
+  assert.equal(JSON.parse(await redis.cmd('GET', 'tr:settings')).teamPasswordHash, undefined);
+  assert.equal((await call('POST', '/api/login', { body: { password: 'old-team-password' } })).statusCode, 401);
+
+  const old = (await call('POST', '/api/login', { body: { password: 'old-admin-password' } })).json();
+  assert.equal(old.legacy, true);
+  const status = (await call('GET', '/api/status', { token: old.token })).json();
+  assert.equal(status.user.kind, 'legacy');
+  // Bookings keep flowing on the same webhook key throughout.
+  const email = { Subject: 'New reservation', TextBody: 'Confirmation #: OT4242\nGuest name: Sample Guest\nParty size: 2\nDate: 2026-11-06\nTime: 19:30' };
+  assert.equal((await call('POST', `/api/inbound-email?key=${'k'.repeat(32)}`, { body: email })).json().action, 'created');
+
+  const r = await call('POST', '/api/users', { token: old.token, body: { ...ADMIN, role: 'admin' } });
   assert.equal(r.statusCode, 200, r.body);
-  assert.equal((await call('GET', '/api/status', { token: team })).statusCode, 401);
-  assert.equal((await call('GET', '/api/status', { token: r.json().token })).statusCode, 200);
-  assert.equal((await call('POST', '/api/login', { body: { password: 'new-team-password' } })).json().role, 'team');
-  const same = await call('PUT', '/api/settings', { token: r.json().token, body: { teamPassword: ADMIN } });
-  assert.equal(same.statusCode, 400);
+  // From now on the old admin password is refused, its sessions end, and its hash is deleted.
+  assert.equal((await call('GET', '/api/status', { token: old.token })).statusCode, 401);
+  assert.equal((await call('POST', '/api/login', { body: { password: 'old-admin-password' } })).statusCode, 401);
+  assert.equal(JSON.parse(await redis.cmd('GET', 'tr:settings')).adminPasswordHash, undefined);
+  assert.deepEqual((await call('GET', '/api/setup-status')).json(), { needsSetup: false, oldAdminPassword: false });
+  const admin = (await login(ADMIN)).json();
+  assert.equal((await call('GET', '/api/day?date=2026-11-06', { token: admin.token })).json().sold, 1);
+});
+
+test('admins can remove other admins but never leave the install without one', async () => {
+  const { call, setUp } = harness();
+  const token = await setUp();
+  const id = (await call('GET', '/api/users', { token })).json().users[0].id;
+  const other = (await call('POST', '/api/users', { token, body: { name: 'Second', email: 'two@ws.co', password: 'second-admin-1', role: 'admin' } })).json();
+  const t2 = (await call('POST', '/api/login', { body: { email: 'two@ws.co', password: 'second-admin-1' } })).json().token;
+  assert.equal((await call('DELETE', `/api/users/${other.id}`, { token })).statusCode, 200);
+  assert.equal((await call('GET', '/api/status', { token: t2 })).statusCode, 401);
+  // The one admin left cannot disable, demote or delete themselves.
+  assert.equal((await call('PUT', `/api/users/${id}`, { token, body: { active: false } })).statusCode, 400);
+  assert.equal((await call('PUT', `/api/users/${id}`, { token, body: { role: 'viewer', clients: ['client-1'] } })).statusCode, 400);
+  assert.equal((await call('DELETE', `/api/users/${id}`, { token })).statusCode, 400);
 });
 
 test('inbound email uses the key from settings; regenerating revokes the old one', async () => {

@@ -28,7 +28,7 @@ a morning reconciliation catches anything the sync missed.
 | `scripts/demo.js` | Dashboard on synthetic data with in-memory vendors |
 | `src/adapters/redis.js` | Redis storage, shadow SevenRooms and the cross-instance booking lock; Upstash REST client |
 | `src/adapters/redis-tcp.js` | Direct Redis connection from `REDIS_URL` |
-| `src/settings.js` | In-app settings, first-run setup, password hashing, sessions, floor plan validation |
+| `src/settings.js` | In-app settings, setup code, password hashing, sessions, floor plan validation |
 | `src/directory.js` | Clients (groups), sites (one per venue: floor plan, SevenRooms, webhook key, Postmark) and users (role, client and site access) |
 | `src/postmark.js` | Connects a Postmark server's inbound webhook to Table Runner |
 | `src/live.js`, `src/vercel.js`, `api/index.js` | Live service on Vercel: wiring from saved settings, authenticated API |
@@ -61,7 +61,8 @@ The live service runs as one Vercel function behind `/api`, with Redis for
 storage: Upstash over its REST API when connected, otherwise any Redis
 database through its `REDIS_URL`. The dashboard is at `/` and the browser-only demo at `/demo`.
 
-All settings live in the app, on the admin Settings screen: passwords, the
+All settings live in the app: users on the Users screen, clients and sites on
+the Clients and sites screen, and per site on the Settings screen the
 email webhook key, the alert channel, SevenRooms details and the floor plan.
 There are no environment variables to set. The only connection outside the app
 is the one to the database that holds those settings, and Vercel creates it
@@ -73,7 +74,8 @@ Setup, once:
    Redis database (Upstash for Redis, or Redis). Redeploy.
 2. Open the site. It asks for a setup code. The code is in the project's
    Vercel logs (search for "setup code"), which only the Vercel team can see.
-   Enter it with a team password and a different admin password.
+   Enter it with your name, email and a password: you become the first
+   admin. Add everyone else as named users on the Users screen.
 3. Settings opens. In Postmark, create a server and copy its Server API
    token (server, API Tokens). Paste it under "OpenTable emails in" and choose
    Connect Postmark. Table Runner sets Postmark's inbound webhook itself and
@@ -110,19 +112,26 @@ Clients, sites and users:
   - admin: every client and site, Settings, Users, Clients and sites;
   - client admin: their clients only; adds and edits those clients' sites,
     edits their settings, and manages users whose access lies wholly inside
-    their clients. Cannot create admins, change the shared passwords, or add,
-    archive or delete clients;
+    their clients. Cannot create admins, or add, archive or delete clients;
   - manager: their sites; runs releases and reconciliation, acknowledges alerts;
   - viewer: their sites, read only.
   Changing a user's role, access, email or password, or disabling them, signs
   that user out at once and nobody else. Nobody can disable, delete or change
-  the role of their own account. Users change their own password under My account.
+  the role of their own account, and the last active admin cannot be removed.
+  Users change their own password under My account.
 - Admin log (Users screen): every client, site, user and settings change and
   who made it. A client admin sees only entries about their own clients.
 - Existing installs: the single venue becomes the first site, under a client
   called "Unassigned". Rename that client (for example to Open House) on the
-  Clients and sites screen. The shared team and admin passwords keep working;
-  the team password has manager rights on every site.
+  Clients and sites screen.
+- Shared passwords are retired. Everyone signs in with their own email and
+  password. On an install from before named users, the team password stops
+  working on deploy and its hash is deleted from storage. The old admin
+  password works only until a named admin exists: sign in with it (Sign in,
+  "Use the old admin password"), add yourself as an admin on the Users screen,
+  and from that moment it is refused, its sessions end and its hash is deleted.
+- If no active admin is ever left, the setup screen returns: the setup code
+  from the Vercel logs creates a new admin and keeps every client, site and user.
 - Scheduled jobs run every live site in turn; one site failing does not stop the others.
 
 API: `GET /api/me`, `PUT /api/me/password`, `GET|POST /api/clients`,
@@ -133,9 +142,9 @@ user's first active site is used.
 
 Access:
 
-- Named users: email and password, by role and site as above.
-- Team password: dashboard on every site. Admin password: everything.
-- Sessions last 12 hours. Changing a password signs everyone else out.
+- Named users only: email and password, by role, client and site as above.
+- Sessions last 12 hours. Changing a user's password, role or access, or
+  disabling them, signs that user out.
 - Ten failed sign-ins from one address lock it out for 15 minutes.
 - Passwords are stored only as scrypt hashes.
 - The email webhook accepts only requests carrying the key from Settings.

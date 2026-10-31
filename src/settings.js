@@ -6,7 +6,8 @@ import { exampleConfig } from '../config/allocation.example.js';
 
 // Everything that would otherwise be an environment variable lives here, in
 // Redis, and is edited on the dashboard's Settings screen by an admin.
-// Passwords are stored only as scrypt hashes.
+// Passwords are stored only as scrypt hashes. Everyone signs in as a named
+// user; the shared team and admin passwords of earlier versions are retired.
 
 const scryptAsync = promisify(scrypt);
 const SETTINGS_KEY = 'tr:settings';
@@ -43,7 +44,10 @@ export class SettingsStore {
   }
 }
 
-export const isConfigured = (s) => Boolean(s.teamPasswordHash && s.adminPasswordHash);
+// Set up once there is an active named admin. An install from before named
+// users also counts while its old admin password remains, so that admin can
+// sign in once to create their own account.
+export const isConfigured = (s) => Boolean(s.adminPasswordHash) || (s.users ?? []).some((u) => u.role === 'admin' && u.active);
 
 // One-time code needed to claim a fresh install. It is written to the function
 // logs, which only the Vercel team can read, so whoever finds the URL first
@@ -59,27 +63,24 @@ export async function ensureSetupCode(redis, log) {
   return code;
 }
 
-export async function completeSetup(redis, { code, teamPassword, adminPassword }) {
-  const store = new SettingsStore(redis);
-  const current = await store.get();
-  if (isConfigured(current)) throw userError(409, 'Table Runner is already set up.');
+// Checks the one-time setup code from the logs. The code is also the way
+// back in if no active admin remains.
+export async function checkSetupCode(redis, code) {
   const expected = await redis.cmd('GET', SETUP_KEY);
   if (!expected || !safeEqual(String(code ?? '').trim(), expected)) throw userError(403, 'That setup code is not correct. Copy it from the Vercel function logs.');
-  checkPasswords({ teamPassword, adminPassword });
+}
 
-  const settings = {
-    ...current,
-    teamPasswordHash: await hashPassword(teamPassword),
-    adminPasswordHash: await hashPassword(adminPassword),
-    inboundSecret: randomSecret(),
+export const clearSetupCode = (redis) => redis.cmd('DEL', SETUP_KEY);
+
+// First-run settings: one example site, no users yet (setup adds the admin).
+export function initialSettings() {
+  return {
     sessionEpoch: 1,
+    inboundSecret: randomSecret(),
     alertWebhookUrl: '',
     sevenRooms: { mode: 'shadow', clientId: '', clientSecret: '', venueId: '' },
-    floorPlan: current.floorPlan ?? exampleConfig,
+    floorPlan: exampleConfig,
   };
-  await store.save(settings);
-  await redis.cmd('DEL', SETUP_KEY);
-  return settings;
 }
 
 // Applies an admin's changes. Returns the new settings and the names of the
@@ -90,20 +91,7 @@ export async function applySettingsChange(current, patch) {
   const errors = [];
 
   if (patch.teamPassword || patch.adminPassword) {
-    const team = patch.teamPassword || null;
-    const admin = patch.adminPassword || null;
-    for (const [name, pw] of [['Team password', team], ['Admin password', admin]]) {
-      if (pw && pw.length < 10) errors.push(`${name} must be at least 10 characters.`);
-    }
-    if (team && admin && team === admin) errors.push('Team and admin passwords must be different.');
-    if (team && !admin && await verifyPassword(team, current.adminPasswordHash)) errors.push('Team password must differ from the admin password.');
-    if (admin && !team && await verifyPassword(admin, current.teamPasswordHash)) errors.push('Admin password must differ from the team password.');
-    if (!errors.length) {
-      if (team) { next.teamPasswordHash = await hashPassword(team); changed.push('team password'); }
-      if (admin) { next.adminPasswordHash = await hashPassword(admin); changed.push('admin password'); }
-      // Signs everyone out, so a leaked old password stops working at once.
-      next.sessionEpoch = (current.sessionEpoch ?? 1) + 1;
-    }
+    errors.push('Shared passwords are retired. Give each person their own sign-in on the Users screen.');
   }
 
   if (patch.regenerateInboundSecret) {
@@ -258,14 +246,6 @@ export async function recordLoginFailure(redis, address) {
   const key = `tr:login-fail:${address}`;
   await redis.cmd('INCR', key);
   await redis.cmd('EXPIRE', key, 900);
-}
-
-function checkPasswords({ teamPassword, adminPassword }) {
-  const errors = [];
-  if (typeof teamPassword !== 'string' || teamPassword.length < 10) errors.push('Team password must be at least 10 characters.');
-  if (typeof adminPassword !== 'string' || adminPassword.length < 10) errors.push('Admin password must be at least 10 characters.');
-  if (!errors.length && teamPassword === adminPassword) errors.push('Team and admin passwords must be different.');
-  if (errors.length) throw userError(400, errors.join(' '));
 }
 
 export function userError(status, message) {
