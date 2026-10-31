@@ -29,7 +29,7 @@ a morning reconciliation catches anything the sync missed.
 | `src/adapters/redis.js` | Redis storage, shadow SevenRooms and the cross-instance booking lock; Upstash REST client |
 | `src/adapters/redis-tcp.js` | Direct Redis connection from `REDIS_URL` |
 | `src/settings.js` | In-app settings, first-run setup, password hashing, sessions, floor plan validation |
-| `src/directory.js` | Users (roles, site access) and sites (one per venue: floor plan, SevenRooms, webhook key, Postmark) |
+| `src/directory.js` | Clients (groups), sites (one per venue: floor plan, SevenRooms, webhook key, Postmark) and users (role, client and site access) |
 | `src/postmark.js` | Connects a Postmark server's inbound webhook to Table Runner |
 | `src/live.js`, `src/vercel.js`, `api/index.js` | Live service on Vercel: wiring from saved settings, authenticated API |
 | `scripts/build-static.js` | Builds `dist/index.html` (live dashboard) and `dist/demo/index.html` (browser-only demo) |
@@ -90,30 +90,43 @@ OpenTable email is processed and shown with the table it would take, but
 nothing is written to SevenRooms. The Settings screen refuses live mode until
 the SevenRooms connection is built (`SevenRoomsClient.implemented`).
 
-Sites and users:
+Clients, sites and users:
 
-- Sites screen (admin): add a site with a name and a code, rename it, archive or
-  reopen it. The code keys that site's bookings in Redis and never changes.
-  Each site has its own floor plan, SevenRooms connection, alert webhook,
-  email webhook key and Postmark server, all on its Settings screen. A new
-  site starts in shadow mode on the example floor plan. Archiving stops its
-  emails (Postmark is told to stop retrying), releases and reconciliation, and
-  hides it from managers and viewers; its bookings are kept. Sites are never
-  deleted.
-- Users screen (admin): add named users who sign in by email. Roles: admin
-  (every site, Settings, Users, Sites), manager (their sites; runs releases and
-  reconciliation, acknowledges alerts), viewer (their sites, read only). A
-  user can be given named sites or all sites, including future ones. Changing
-  a user's role, sites, email or password, or disabling them, signs that user
-  out at once and nobody else. An admin cannot disable, demote or delete
-  their own account. Users change their own password under My account.
-- Admin log (Users screen): every user, site and settings change and who made it.
-- Existing installs: the single venue becomes the first site on first load.
-  The shared team and admin passwords keep working; the team password has
-  manager rights on every site.
-- Scheduled jobs run every active site in turn; one site failing does not stop the others.
+- A client is a hospitality group (for example Open House). A site is one
+  venue under it (for example Broadcaster). Every site belongs to one client.
+- Clients and sites screen: admins add clients, rename them, archive or reopen
+  them, and delete a client once it has no sites. Archiving a client takes
+  every one of its sites offline. Admins and client admins add sites to a
+  client, rename them, move them between clients, and archive or reopen them.
+  The site code keys that site's bookings in Redis and never changes. Each site
+  has its own floor plan, SevenRooms connection, alert webhook, email webhook
+  key and Postmark server, all on its Settings screen. A new site starts in
+  shadow mode on the example floor plan. An archived site stops taking emails
+  (Postmark is told to stop retrying), releases and reconciliation, and is
+  hidden from managers and viewers; its bookings are kept. Sites are never deleted.
+- Users screen: named users sign in by email. Access is given to whole clients
+  (every site the client has now and adds later), to single sites, or, for
+  admins only, to everything. Roles:
+  - admin: every client and site, Settings, Users, Clients and sites;
+  - client admin: their clients only; adds and edits those clients' sites,
+    edits their settings, and manages users whose access lies wholly inside
+    their clients. Cannot create admins, change the shared passwords, or add,
+    archive or delete clients;
+  - manager: their sites; runs releases and reconciliation, acknowledges alerts;
+  - viewer: their sites, read only.
+  Changing a user's role, access, email or password, or disabling them, signs
+  that user out at once and nobody else. Nobody can disable, delete or change
+  the role of their own account. Users change their own password under My account.
+- Admin log (Users screen): every client, site, user and settings change and
+  who made it. A client admin sees only entries about their own clients.
+- Existing installs: the single venue becomes the first site, under a client
+  called "Unassigned". Rename that client (for example to Open House) on the
+  Clients and sites screen. The shared team and admin passwords keep working;
+  the team password has manager rights on every site.
+- Scheduled jobs run every live site in turn; one site failing does not stop the others.
 
-API: `GET /api/me`, `PUT /api/me/password`, `GET|POST /api/sites`,
+API: `GET /api/me`, `PUT /api/me/password`, `GET|POST /api/clients`,
+`PUT|DELETE /api/clients/:id`, `GET|POST /api/sites`,
 `GET|PUT /api/sites/:id`, `GET|POST /api/users`, `PUT|DELETE /api/users/:id`,
 `GET /api/audit`. Dashboard and settings routes take `?site=`; without it the
 user's first active site is used.

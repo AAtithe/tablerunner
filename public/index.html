@@ -119,6 +119,11 @@
   .site-checks { display: grid; gap: 4px; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
   .site-checks label { color: var(--ink); font-size: 13px; display: flex; gap: 6px; align-items: center; }
   .site-checks input { width: auto; }
+  .access-group { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+  .access-group:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+  .access-group .client-check { font-weight: 600; }
+  tr.client-row td { background: var(--idle-soft); }
+  tr.site-row td:first-child { padding-left: 22px; }
   #site-select { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; max-width: 220px; }
   .who-am-i { font-size: 12px; }
   .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--line); }
@@ -136,7 +141,7 @@
     <select id="site-select" hidden></select>
     <button id="btn-reconcile">Run reconciliation</button>
     <button id="btn-release">Run releases</button>
-    <button id="btn-sites" hidden>Sites</button>
+    <button id="btn-sites" hidden>Clients and sites</button>
     <button id="btn-users" hidden>Users</button>
     <button id="btn-settings" hidden>Settings</button>
     <button id="btn-account" hidden>My account</button>
@@ -209,8 +214,8 @@
         <label for="s-venue-id">Venue ID</label>
         <input id="s-venue-id" autocomplete="off">
       </fieldset>
-      <fieldset>
-        <legend>Shared passwords (every site)</legend>
+      <fieldset id="s-shared-passwords">
+        <legend>Shared passwords (every client and site)</legend>
         <label for="s-team">New team password</label>
         <input id="s-team" type="password" autocomplete="new-password" minlength="10">
         <label for="s-admin">New admin password</label>
@@ -231,25 +236,42 @@
   </section>
   <section class="panel" id="sites-panel" hidden>
     <div class="toolbar" style="justify-content: space-between; margin-bottom: 12px;">
-      <h2 style="margin:0">Sites</h2>
+      <h2 style="margin:0">Clients and sites</h2>
       <button id="sites-close" type="button">Close</button>
     </div>
+    <p class="hint" style="margin-top:0">A client is the group (for example Open House). Each site is one venue under it (for example Broadcaster), with its own floor plan, SevenRooms, emails in and alerts.</p>
     <div class="scroll"><table class="admin-table" id="sites-table"></table></div>
-    <form id="site-form" class="settings-grid" style="margin-top:16px">
-      <fieldset>
-        <legend id="site-form-title">Add a site</legend>
-        <label for="site-name">Site name, as staff know it</label>
-        <input id="site-name" required maxlength="80">
-        <label for="site-code">Site code (lower-case letters, digits, hyphens)</label>
-        <input id="site-code" required pattern="[a-z0-9\-]{2,40}" autocomplete="off">
-        <div class="hint">The code keys the site's bookings and cannot change later. A new site starts in shadow mode on the example floor plan: open its Settings to connect Postmark and paste the real floor plan.</div>
-        <div class="toolbar">
-          <button class="primary" type="submit" id="site-submit">Add site</button>
-          <button type="button" id="site-cancel" hidden>Cancel</button>
-        </div>
-        <span class="msg" id="sites-msg" role="status"></span>
-      </fieldset>
-    </form>
+    <div class="settings-grid" style="margin-top:16px">
+      <form id="client-form">
+        <fieldset>
+          <legend id="client-form-title">Add a client</legend>
+          <label for="client-name">Client name, the group as you bill it</label>
+          <input id="client-name" required maxlength="80">
+          <div class="hint">Then add its sites alongside, and give people access to the whole client on the Users screen.</div>
+          <div class="toolbar">
+            <button class="primary" type="submit" id="client-submit">Add client</button>
+            <button type="button" id="client-cancel" hidden>Cancel</button>
+          </div>
+        </fieldset>
+      </form>
+      <form id="site-form">
+        <fieldset>
+          <legend id="site-form-title">Add a site</legend>
+          <label for="site-client">Client</label>
+          <select id="site-client" required></select>
+          <label for="site-name">Site name, as staff know it</label>
+          <input id="site-name" required maxlength="80">
+          <label for="site-code">Site code (lower-case letters, digits, hyphens)</label>
+          <input id="site-code" required pattern="[a-z0-9\-]{2,40}" autocomplete="off">
+          <div class="hint">The code keys the site's bookings and cannot change later. A site can move to another client at any time. A new site starts in shadow mode on the example floor plan: open its Settings to connect Postmark and paste the real floor plan.</div>
+          <div class="toolbar">
+            <button class="primary" type="submit" id="site-submit">Add site</button>
+            <button type="button" id="site-cancel" hidden>Cancel</button>
+          </div>
+        </fieldset>
+      </form>
+    </div>
+    <span class="msg" id="sites-msg" role="status"></span>
   </section>
 
   <section class="panel" id="users-panel" hidden>
@@ -268,7 +290,7 @@
           <div style="display:grid;gap:8px"><label for="u-password" id="u-password-label">Password (10 characters or more)</label><input id="u-password" type="password" autocomplete="new-password" minlength="10"></div>
         </div>
         <div id="u-sites-wrap">
-          <label>Sites this user may see</label>
+          <label>Access: a whole client covers every site it has now and adds later</label>
           <div class="site-checks" id="u-sites"></div>
         </div>
         <div class="hint" id="u-role-hint"></div>
@@ -388,7 +410,7 @@ function renderStatus(s) {
   today = s.now.slice(0, 10);
   if (!selected) selected = today;
   $('clock').textContent = `London ${s.now.slice(11)}`;
-  $('venue').textContent = s.venueName ? `${s.venueName}: ` : '';
+  $('venue').textContent = s.venueName ? `${s.client?.name ? `${s.client.name} / ` : ''}${s.venueName}: ` : '';
   document.title = s.venueName ? `Table Runner: ${s.venueName}` : 'Table Runner';
   $('demo').innerHTML = s.mode?.demo
     ? `<div class="banner">Demo data. Every booking and guest on this page is synthetic. No vendor system is connected.${s.mode.note ? ' ' + esc(s.mode.note) : ''}</div>`
@@ -522,7 +544,8 @@ let loadedFloor = '';
 const msg = (text, ok) => { $('settings-msg').textContent = text; $('settings-msg').className = `msg ${ok ? 'ok' : 'bad'}`; };
 
 function fillSettings(s) {
-  $('settings-site').textContent = s.site ? `${s.site.name} (${s.site.id})` : '';
+  $('settings-site').textContent = s.site ? `${s.site.clientName ? `${s.site.clientName} / ` : ''}${s.site.name} (${s.site.id})` : '';
+  $('s-shared-passwords').hidden = !s.canChangeSharedPasswords;
   $('s-inbound').value = s.inboundUrl;
   const pm = s.postmark;
   $('pm-status').innerHTML = pm.connected
@@ -651,15 +674,21 @@ async function loadMe(status) {
   if (!window.tableRunnerApi && status.role) {
     try { sites = (await api('/api/me')).sites; } catch {}
   }
+  // Grouped by client, so a group with many venues stays easy to scan.
+  const groups = new Map();
+  for (const x of sites) (groups.get(x.clientName) ?? groups.set(x.clientName, []).get(x.clientName)).push(x);
+  const opt = (x) => `<option value="${esc(x.id)}">${esc(x.name)}${x.live ? '' : ' (archived)'}</option>`;
   const sel = $('site-select');
-  sel.innerHTML = sites.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}${x.active ? '' : ' (archived)'}</option>`).join('');
+  sel.innerHTML = groups.size > 1
+    ? [...groups].map(([client, list]) => `<optgroup label="${esc(client)}">${list.map(opt).join('')}</optgroup>`).join('')
+    : sites.map(opt).join('');
   sel.value = status.site ?? '';
   sel.hidden = $('site-select-label').hidden = sites.length < 2;
-  $('btn-settings').hidden = $('btn-sites').hidden = $('btn-users').hidden = !me.isAdmin;
+  $('btn-settings').hidden = $('btn-sites').hidden = $('btn-users').hidden = !me.canManage;
   $('btn-account').hidden = me.kind !== 'user';
   $('btn-signout').hidden = !status.role;
   $('btn-reconcile').hidden = $('btn-release').hidden = !me.canAct;
-  $('who-am-i').textContent = status.role ? `${me.name}${me.role ? `, ${me.role}` : ''}` : '';
+  $('who-am-i').textContent = status.role ? `${me.name}${me.role ? `, ${me.role.replace('_', ' ')}` : ''}` : '';
 }
 
 $('site-select').onchange = (e) => {
@@ -690,15 +719,18 @@ function armed(btn, label, confirmLabel, run) {
   setTimeout(() => { if (btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = label; } }, 8000);
 }
 
-// ---- Sites (admin)
+// ---- Clients and sites (admins; client admins for their own clients)
+let clientsCache = [];
 let sitesCache = [];
 let editingSite = null;
+let editingClient = null;
 
 async function openSites(message) {
   try {
-    sitesCache = (await api('/api/sites')).sites;
+    [clientsCache, sitesCache] = await Promise.all([api('/api/clients').then((r) => r.clients), api('/api/sites').then((r) => r.sites)]);
     renderSites();
     resetSiteForm();
+    resetClientForm();
     showPanel('sites-panel');
     if (message) note('sites-msg', message, true);
   } catch (err) {
@@ -708,11 +740,22 @@ async function openSites(message) {
 }
 
 function renderSites() {
-  $('sites-table').innerHTML = `<tr><th>Site</th><th>Code</th><th>Status</th><th>Floor plan</th><th>SevenRooms</th><th>Emails in</th><th>Alerts to</th><th></th></tr>`
-    + sitesCache.map((x) => `<tr>
+  const head = `<tr><th>Client / site</th><th>Code</th><th>Status</th><th>Floor plan</th><th>SevenRooms</th><th>Emails in</th><th>Alerts to</th><th></th></tr>`;
+  const clientRow = (c) => `<tr class="client-row">
+      <td><strong>${esc(c.name)}</strong> <span class="muted">${c.activeSites} of ${c.sites} site${c.sites === 1 ? '' : 's'} active</span></td>
+      <td></td>
+      <td>${c.active ? '<span class="pill ok">Active</span>' : '<span class="pill">Archived</span>'}</td>
+      <td colspan="4"></td>
+      <td><div class="toolbar">
+        ${c.canManage ? `<button data-client-edit="${esc(c.id)}">Rename</button>` : ''}
+        ${c.canManage ? `<button data-client-addsite="${esc(c.id)}">Add site</button>` : ''}
+        ${me?.isAdmin ? `<button data-client-active="${esc(c.id)}">${c.active ? 'Archive' : 'Reopen'}</button>` : ''}
+        ${me?.isAdmin && !c.sites ? `<button data-client-delete="${esc(c.id)}">Delete</button>` : ''}
+      </div></td></tr>`;
+  const siteRow = (x) => `<tr class="site-row">
       <td><strong>${esc(x.name)}</strong>${x.id === site ? ' <span class="pill ok">viewing</span>' : ''}</td>
       <td><code>${esc(x.id)}</code></td>
-      <td>${x.active ? '<span class="pill ok">Active</span>' : '<span class="pill">Archived</span>'}</td>
+      <td>${x.live ? '<span class="pill ok">Active</span>' : x.active ? '<span class="pill">Client archived</span>' : '<span class="pill">Archived</span>'}</td>
       <td>${x.example ? '<span class="pill warn">Example</span>' : `${x.tables} tables, ${x.sittings} sittings`}</td>
       <td>${x.sevenRoomsMode === 'live' ? '<span class="pill ok">Live</span>' : '<span class="pill warn">Shadow</span>'}</td>
       <td>${x.postmarkConnected ? '<span class="pill ok">Postmark</span>' : '<span class="pill warn">Not connected</span>'}</td>
@@ -720,27 +763,33 @@ function renderSites() {
       <td><div class="toolbar">
         <button data-site-view="${esc(x.id)}">Dashboard</button>
         <button data-site-settings="${esc(x.id)}">Settings</button>
-        <button data-site-edit="${esc(x.id)}">Rename</button>
+        <button data-site-edit="${esc(x.id)}">Edit</button>
         <button data-site-active="${esc(x.id)}">${x.active ? 'Archive' : 'Reopen'}</button>
-      </div></td></tr>`).join('');
+      </div></td></tr>`;
+  $('sites-table').innerHTML = head + (clientsCache.length
+    ? clientsCache.map((c) => clientRow(c) + sitesCache.filter((x) => x.clientId === c.id).map(siteRow).join('')).join('')
+    : '<tr><td colspan="8" class="empty">No clients yet.</td></tr>');
+
+  const byId = (list, id) => list.find((y) => y.id === id);
   document.querySelectorAll('[data-site-view]').forEach((b) => b.onclick = () => { setSite(b.dataset.siteView); selected = null; closePanels(); refresh(); });
   document.querySelectorAll('[data-site-settings]').forEach((b) => b.onclick = () => { setSite(b.dataset.siteSettings); refresh(); openSettings(); });
   document.querySelectorAll('[data-site-edit]').forEach((b) => b.onclick = () => {
-    const x = sitesCache.find((y) => y.id === b.dataset.siteEdit);
+    const x = byId(sitesCache, b.dataset.siteEdit);
     editingSite = x.id;
-    $('site-form-title').textContent = `Rename ${x.name}`;
+    $('site-form-title').textContent = `Edit ${x.name}`;
+    $('site-client').value = x.clientId;
     $('site-name').value = x.name;
     $('site-code').value = x.id;
     $('site-code').disabled = true;
-    $('site-submit').textContent = 'Save name';
+    $('site-submit').textContent = 'Save site';
     $('site-cancel').hidden = false;
+    $('site-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
     $('site-name').focus();
   });
   document.querySelectorAll('[data-site-active]').forEach((b) => b.onclick = () => {
-    const x = sitesCache.find((y) => y.id === b.dataset.siteActive);
-    const label = x.active ? 'Archive' : 'Reopen';
+    const x = byId(sitesCache, b.dataset.siteActive);
     if (x.active) note('sites-msg', `Archiving ${x.name} stops its emails, releases and reconciliation, and hides it from managers and viewers. Bookings are kept. Click again to confirm.`, false);
-    armed(b, label, x.active ? 'Confirm archive' : 'Confirm reopen', async () => {
+    armed(b, x.active ? 'Archive' : 'Reopen', x.active ? 'Confirm archive' : 'Confirm reopen', async () => {
       try {
         await api(`/api/sites/${encodeURIComponent(x.id)}`, { method: 'PUT', json: { active: !x.active } });
         await openSites(`${x.name} ${x.active ? 'archived' : 'reopened'}.`);
@@ -748,10 +797,59 @@ function renderSites() {
       } catch (err) { note('sites-msg', err.message, false); }
     });
   });
+  document.querySelectorAll('[data-client-edit]').forEach((b) => b.onclick = () => {
+    const c = byId(clientsCache, b.dataset.clientEdit);
+    editingClient = c.id;
+    $('client-form-title').textContent = `Rename ${c.name}`;
+    $('client-name').value = c.name;
+    $('client-submit').textContent = 'Save name';
+    $('client-cancel').hidden = false;
+    $('client-form').hidden = false;
+    $('client-name').focus();
+  });
+  document.querySelectorAll('[data-client-addsite]').forEach((b) => b.onclick = () => {
+    resetSiteForm();
+    $('site-client').value = b.dataset.clientAddsite;
+    $('site-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    $('site-name').focus();
+  });
+  document.querySelectorAll('[data-client-active]').forEach((b) => b.onclick = () => {
+    const c = byId(clientsCache, b.dataset.clientActive);
+    if (c.active) note('sites-msg', `Archiving ${c.name} takes all ${c.sites} of its sites offline: no emails, releases or reconciliation. Bookings are kept. Click again to confirm.`, false);
+    armed(b, c.active ? 'Archive' : 'Reopen', c.active ? 'Confirm archive' : 'Confirm reopen', async () => {
+      try {
+        await api(`/api/clients/${encodeURIComponent(c.id)}`, { method: 'PUT', json: { active: !c.active } });
+        await openSites(`${c.name} ${c.active ? 'archived' : 'reopened'}.`);
+        refresh();
+      } catch (err) { note('sites-msg', err.message, false); }
+    });
+  });
+  document.querySelectorAll('[data-client-delete]').forEach((b) => b.onclick = () => {
+    const c = byId(clientsCache, b.dataset.clientDelete);
+    note('sites-msg', `Delete ${c.name}? Users lose access to it, and anyone left with no access is disabled. Click again to confirm.`, false);
+    armed(b, 'Delete', 'Confirm delete', async () => {
+      try {
+        await api(`/api/clients/${encodeURIComponent(c.id)}`, { method: 'DELETE' });
+        await openSites(`${c.name} deleted.`);
+      } catch (err) { note('sites-msg', err.message, false); }
+    });
+  });
+}
+
+function resetClientForm() {
+  editingClient = null;
+  $('client-form').hidden = !me?.isAdmin;
+  $('client-form-title').textContent = 'Add a client';
+  $('client-name').value = '';
+  $('client-submit').textContent = 'Add client';
+  $('client-cancel').hidden = true;
 }
 
 function resetSiteForm() {
   editingSite = null;
+  const mine = clientsCache.filter((c) => c.canManage);
+  $('site-form').hidden = !mine.length;
+  $('site-client').innerHTML = mine.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}${c.active ? '' : ' (archived)'}</option>`).join('');
   $('site-form-title').textContent = 'Add a site';
   $('site-name').value = '';
   $('site-code').value = '';
@@ -762,22 +860,39 @@ function resetSiteForm() {
   note('sites-msg', '', true);
 }
 
-// Suggest a code from the name until the admin types one of their own.
+const slugify = (v) => v.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+// Suggest a code from the name until the user types one of their own.
 $('site-name').oninput = () => {
   if (editingSite || $('site-code').dataset.touched) return;
-  $('site-code').value = $('site-name').value.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  $('site-code').value = slugify($('site-name').value);
 };
 $('site-code').oninput = () => { $('site-code').dataset.touched = '1'; };
 $('site-cancel').onclick = resetSiteForm;
+$('client-cancel').onclick = resetClientForm;
 $('site-form').onsubmit = async (e) => {
   e.preventDefault();
   try {
     if (editingSite) {
-      await api(`/api/sites/${encodeURIComponent(editingSite)}`, { method: 'PUT', json: { name: $('site-name').value } });
-      await openSites('Name saved.');
+      await api(`/api/sites/${encodeURIComponent(editingSite)}`, { method: 'PUT', json: { name: $('site-name').value, clientId: $('site-client').value } });
+      await openSites('Site saved.');
     } else {
-      const x = await api('/api/sites', { method: 'POST', json: { id: $('site-code').value.trim(), name: $('site-name').value } });
-      await openSites(`${x.name} added. Open its Settings to connect Postmark and paste the real floor plan, then give users access on the Users screen.`);
+      const x = await api('/api/sites', { method: 'POST', json: { id: $('site-code').value.trim(), name: $('site-name').value, clientId: $('site-client').value } });
+      await openSites(`${x.name} added to ${x.clientName}. Open its Settings to connect Postmark and paste the real floor plan. Anyone with access to the whole of ${x.clientName} can already see it.`);
+    }
+    refresh();
+  } catch (err) { note('sites-msg', err.message, false); }
+};
+$('client-form').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    if (editingClient) {
+      await api(`/api/clients/${encodeURIComponent(editingClient)}`, { method: 'PUT', json: { name: $('client-name').value } });
+      await openSites('Client renamed.');
+    } else {
+      const c = await api('/api/clients', { method: 'POST', json: { name: $('client-name').value } });
+      await openSites(`${c.name} added. Now add its sites.`);
+      $('site-client').value = c.id;
+      $('site-name').focus();
     }
     refresh();
   } catch (err) { note('sites-msg', err.message, false); }
@@ -785,8 +900,8 @@ $('site-form').onsubmit = async (e) => {
 $('btn-sites').onclick = () => openSites();
 $('sites-close').onclick = () => { $('sites-panel').hidden = true; };
 
-// ---- Users (admin)
-let usersCache = { users: [], sites: [], roles: {} };
+// ---- Users (admins; client admins for users inside their clients)
+let usersCache = { users: [], sites: [], clients: [], roles: {}, canGrantAll: false };
 let editingUser = null;
 
 async function openUsers(message) {
@@ -805,16 +920,25 @@ async function openUsers(message) {
 }
 
 const siteName = (id) => usersCache.sites.find((x) => x.id === id)?.name ?? id;
-const roleTone = { admin: 'bad', manager: 'ok', viewer: '' };
+const clientName = (id) => usersCache.clients.find((x) => x.id === id)?.name ?? id;
+const roleTone = { admin: 'bad', client_admin: 'warn', manager: 'ok', viewer: '' };
+const roleLabel = (r) => ({ admin: 'Admin', client_admin: 'Client admin', manager: 'Manager', viewer: 'Viewer' }[r] ?? r);
+function accessText(u) {
+  if (u.role === 'admin' || u.sites.includes('*')) return 'Every client and site';
+  return [
+    ...u.clients.map((id) => `<span class="pill ok">All of ${esc(clientName(id))}</span>`),
+    ...u.sites.map((id) => `<span class="pill">${esc(siteName(id))}</span>`),
+  ].join('') || '<span class="muted">None</span>';
+}
 
 function renderUsers() {
   const rows = usersCache.users.slice().sort((a, b) => a.name.localeCompare(b.name));
-  $('users-table').innerHTML = `<tr><th>Name</th><th>Email</th><th>Role</th><th>Sites</th><th>Status</th><th>Last sign-in</th><th></th></tr>`
+  $('users-table').innerHTML = `<tr><th>Name</th><th>Email</th><th>Role</th><th>Access</th><th>Status</th><th>Last sign-in</th><th></th></tr>`
     + (rows.length ? rows.map((u) => `<tr>
       <td><strong>${esc(u.name)}</strong></td>
       <td>${esc(u.email)}</td>
-      <td><span class="pill ${roleTone[u.role]}">${esc(u.role)}</span></td>
-      <td>${u.sites.includes('*') ? 'All sites' : u.sites.map((id) => `<span class="pill">${esc(siteName(id))}</span>`).join('')}</td>
+      <td><span class="pill ${roleTone[u.role]}">${esc(roleLabel(u.role))}</span></td>
+      <td>${accessText(u)}</td>
       <td>${u.active ? '<span class="pill ok">Active</span>' : '<span class="pill">Disabled</span>'}</td>
       <td class="muted">${esc(fmtWhen(u.lastSignInAt))}</td>
       <td><div class="toolbar">
@@ -822,7 +946,7 @@ function renderUsers() {
         <button data-user-active="${esc(u.id)}">${u.active ? 'Disable' : 'Enable'}</button>
         <button data-user-delete="${esc(u.id)}">Delete</button>
       </div></td></tr>`).join('')
-      : '<tr><td colspan="7" class="empty">No named users yet. Everyone signs in with the shared team or admin password. Add people below so each has their own sign-in, role and sites.</td></tr>');
+      : '<tr><td colspan="7" class="empty">No named users yet. Everyone signs in with the shared team or admin password. Add people below so each has their own sign-in, role and access.</td></tr>');
   document.querySelectorAll('[data-user-edit]').forEach((b) => b.onclick = () => editUser(usersCache.users.find((u) => u.id === b.dataset.userEdit)));
   document.querySelectorAll('[data-user-active]').forEach((b) => b.onclick = () => {
     const u = usersCache.users.find((x) => x.id === b.dataset.userActive);
@@ -847,32 +971,60 @@ function renderUsers() {
   });
 }
 
-function renderUserSites(selectedSites) {
+// Access is chosen per client: tick the client for all its sites (now and
+// later), or tick single sites under it. Admins can also grant everything.
+function renderUserSites(selectedSites, selectedClients = []) {
   const all = selectedSites.includes('*');
-  $('u-sites').innerHTML = `<label><input type="checkbox" value="*" ${all ? 'checked' : ''}> All sites, including future ones</label>`
-    + usersCache.sites.map((x) => `<label><input type="checkbox" value="${esc(x.id)}" ${all || selectedSites.includes(x.id) ? 'checked' : ''} ${all ? 'disabled' : ''}> ${esc(x.name)}${x.active ? '' : ' (archived)'}</label>`).join('');
-  $('u-sites').querySelector('input[value="*"]').onchange = (e) => {
-    $('u-sites').querySelectorAll('input:not([value="*"])').forEach((c) => { c.disabled = e.target.checked; if (e.target.checked) c.checked = true; });
+  const clientAdmin = $('u-role').value === 'client_admin';
+  const groups = usersCache.clients.map((c) => {
+    const whole = all || selectedClients.includes(c.id);
+    const sites = usersCache.sites.filter((x) => x.clientId === c.id);
+    return `<div class="access-group">
+      <label class="client-check"><input type="checkbox" data-client="${esc(c.id)}" ${whole ? 'checked' : ''} ${all ? 'disabled' : ''}> All of ${esc(c.name)}${c.active ? '' : ' (archived)'}</label>
+      ${clientAdmin ? '' : `<div class="site-checks">${sites.map((x) => `<label><input type="checkbox" data-site="${esc(x.id)}" ${whole || selectedSites.includes(x.id) ? 'checked' : ''} ${whole ? 'disabled' : ''}> ${esc(x.name)}${x.live ? '' : ' (archived)'}</label>`).join('') || '<span class="muted">No sites yet</span>'}</div>`}
+    </div>`;
+  }).join('');
+  $('u-sites').innerHTML = (usersCache.canGrantAll && !clientAdmin
+    ? `<div class="access-group"><label class="client-check"><input type="checkbox" data-all ${all ? 'checked' : ''}> Every client and site, including future ones</label></div>` : '')
+    + (groups || '<div class="empty">No clients yet. Add one on the Clients and sites screen.</div>');
+  $('u-sites').style.display = 'block';
+  const sync = () => {
+    const everything = $('u-sites').querySelector('[data-all]')?.checked;
+    $('u-sites').querySelectorAll('[data-client]').forEach((c) => {
+      c.disabled = everything; if (everything) c.checked = true;
+      c.closest('.access-group').querySelectorAll('[data-site]').forEach((x) => { x.disabled = c.checked; if (c.checked) x.checked = true; });
+    });
   };
+  $('u-sites').querySelectorAll('[data-all], [data-client]').forEach((c) => c.onchange = sync);
+}
+
+function readAccess() {
+  const box = $('u-sites');
+  if (box.querySelector('[data-all]')?.checked) return { sites: ['*'], clients: [] };
+  const clients = [...box.querySelectorAll('[data-client]:checked')].map((c) => c.dataset.client);
+  const sites = [...box.querySelectorAll('[data-site]:checked:not(:disabled)')].map((c) => c.dataset.site);
+  return { sites, clients };
 }
 
 function syncRoleUi() {
   const role = $('u-role').value;
+  const keep = $('u-sites').children.length ? readAccess() : { sites: [], clients: [] };
   $('u-sites-wrap').hidden = role === 'admin';
+  if (role !== 'admin') renderUserSites(keep.sites, keep.clients);
   $('u-role-hint').textContent = usersCache.roles[role] ?? '';
 }
 
 function resetUserForm() {
   editingUser = null;
   $('user-form-title').textContent = 'Add a user';
-  $('u-role').innerHTML = Object.keys(usersCache.roles).map((r) => `<option value="${r}">${r[0].toUpperCase() + r.slice(1)}</option>`).join('');
+  $('u-role').innerHTML = Object.keys(usersCache.roles).map((r) => `<option value="${r}">${roleLabel(r)}</option>`).join('');
   $('u-role').value = 'manager';
   $('u-name').value = ''; $('u-email').value = ''; $('u-password').value = '';
   $('u-password').required = true;
   $('u-password-label').textContent = 'Password (10 characters or more). Give it to them in person or by phone, not by email.';
   $('user-submit').textContent = 'Add user';
   $('user-cancel').hidden = true;
-  renderUserSites(site ? [site] : []);
+  renderUserSites(site && usersCache.sites.some((x) => x.id === site) ? [site] : []);
   syncRoleUi();
   note('users-msg', '', true);
 }
@@ -886,8 +1038,9 @@ function editUser(u) {
   $('u-password-label').textContent = 'New password (leave blank to keep). Setting one signs them out.';
   $('user-submit').textContent = 'Save changes';
   $('user-cancel').hidden = false;
-  renderUserSites(u.sites);
-  syncRoleUi();
+  $('u-sites-wrap').hidden = u.role === 'admin';
+  renderUserSites(u.sites, u.clients);
+  $('u-role-hint').textContent = usersCache.roles[u.role] ?? '';
   $('user-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
   $('u-name').focus();
 }
@@ -896,9 +1049,8 @@ $('u-role').onchange = syncRoleUi;
 $('user-cancel').onclick = resetUserForm;
 $('user-form').onsubmit = async (e) => {
   e.preventDefault();
-  const checked = [...$('u-sites').querySelectorAll('input:checked')].map((c) => c.value);
   const body = { name: $('u-name').value, email: $('u-email').value, role: $('u-role').value };
-  if (body.role !== 'admin') body.sites = checked.includes('*') ? ['*'] : checked;
+  if (body.role !== 'admin') Object.assign(body, readAccess());
   if ($('u-password').value) body.password = $('u-password').value;
   try {
     if (editingUser) {

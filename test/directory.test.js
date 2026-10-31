@@ -42,11 +42,11 @@ test('existing single-venue settings become the first site', async () => {
 
 test('admins add, rename and archive sites; each site keeps its own data and webhook', async () => {
   const { call, admin } = await harness();
-  assert.equal((await call('POST', '/api/sites', { token: admin, body: { id: 'Bad Code!', name: 'X' } })).statusCode, 400);
-  const added = await call('POST', '/api/sites', { token: admin, body: { id: 'soho', name: 'Soho' } });
+  assert.equal((await call('POST', '/api/sites', { token: admin, body: { id: 'Bad Code!', name: 'X', clientId: 'client-1' } })).statusCode, 400);
+  const added = await call('POST', '/api/sites', { token: admin, body: { id: 'soho', name: 'Soho', clientId: 'client-1' } });
   assert.equal(added.statusCode, 200, added.body);
   assert.equal(added.json().example, true);
-  assert.equal((await call('POST', '/api/sites', { token: admin, body: { id: 'soho', name: 'Again' } })).statusCode, 400);
+  assert.equal((await call('POST', '/api/sites', { token: admin, body: { id: 'soho', name: 'Again', clientId: 'client-1' } })).statusCode, 400);
 
   const soho = (await call('GET', '/api/settings?site=soho', { token: admin })).json();
   const broadcaster = (await call('GET', '/api/settings', { token: admin })).json();
@@ -78,13 +78,13 @@ test('admins add, rename and archive sites; each site keeps its own data and web
   assert.match((await call('PUT', '/api/sites/broadcaster', { token: admin, body: { active: false } })).json().error, /At least one site/);
 
   const log = (await call('GET', '/api/audit', { token: admin })).json().map((a) => a.message);
-  assert.ok(log.includes('Site Soho (soho) added'));
+  assert.ok(log.includes('Site Soho (soho) added to Unassigned'));
   assert.ok(log.some((m) => /archived/.test(m)));
 });
 
 test('named users sign in by email and see only their sites with their role', async () => {
   const { call, admin, login } = await harness();
-  await call('POST', '/api/sites', { token: admin, body: { id: 'soho', name: 'Soho' } });
+  await call('POST', '/api/sites', { token: admin, body: { id: 'soho', name: 'Soho', clientId: 'client-1' } });
 
   const weak = await call('POST', '/api/users', { token: admin, body: { name: 'Gm', email: 'gm@venue.co', role: 'manager', sites: ['soho'], password: 'short' } });
   assert.equal(weak.statusCode, 400);
@@ -154,10 +154,80 @@ test('an admin user cannot lock themselves out', async () => {
   assert.deepEqual(u.sites, ['*']);
   const t = (await login('owner@ws.co', 'owner-pass-1')).json().token;
   assert.match((await call('PUT', `/api/users/${u.id}`, { token: t, body: { active: false } })).json().error, /your own account/);
-  assert.match((await call('PUT', `/api/users/${u.id}`, { token: t, body: { role: 'viewer', sites: ['*'] } })).json().error, /own admin role/);
+  assert.match((await call('PUT', `/api/users/${u.id}`, { token: t, body: { role: 'viewer', sites: ['*'] } })).json().error, /own role/);
   assert.match((await call('DELETE', `/api/users/${u.id}`, { token: t })).json().error, /your own account/);
   // Settings saved by a named admin keep them signed in after a shared password change.
   const r = (await call('PUT', '/api/settings', { token: t, body: { teamPassword: 'new-team-password' } })).json();
   assert.equal((await call('GET', '/api/me', { token: r.token })).json().email, 'owner@ws.co');
   assert.equal((await call('POST', '/api/login', { body: { password: TEAM } })).statusCode, 401);
+});
+
+test('clients group sites; a client admin manages only their own client', async () => {
+  const { call, admin, login } = await harness();
+  // Existing sites start under one client, renamed to the group's real name.
+  let { clients } = (await call('GET', '/api/clients', { token: admin })).json();
+  assert.deepEqual(clients.map((c) => [c.id, c.name, c.sites]), [['client-1', 'Unassigned', 1]]);
+  await call('PUT', '/api/clients/client-1', { token: admin, body: { name: 'Open House' } });
+
+  const other = await call('POST', '/api/clients', { token: admin, body: { name: 'Other Group' } });
+  assert.equal(other.json().id, 'other-group');
+  assert.equal((await call('POST', '/api/clients', { token: admin, body: { name: 'Other Group' } })).statusCode, 400);
+  assert.equal((await call('POST', '/api/sites', { token: admin, body: { id: 'soho', name: 'Soho' } })).statusCode, 400);
+  await call('POST', '/api/sites', { token: admin, body: { id: 'soho', name: 'Soho', clientId: 'other-group' } });
+  await call('POST', '/api/sites', { token: admin, body: { id: 'canteen', name: 'Canteen', clientId: 'client-1' } });
+
+  const status = (await call('GET', '/api/status', { token: admin })).json();
+  assert.deepEqual(status.client, { id: 'client-1', name: 'Open House' });
+
+  // A client admin for Open House.
+  const ca = await call('POST', '/api/users', { token: admin, body: { name: 'Ops Director', email: 'ops@openhouse.co', role: 'client_admin', clients: ['client-1'], password: 'client-admin-1' } });
+  assert.equal(ca.statusCode, 200, ca.body);
+  assert.equal((await call('POST', '/api/users', { token: admin, body: { name: 'X', email: 'x@openhouse.co', role: 'client_admin', sites: ['broadcaster'], password: 'client-admin-1' } })).statusCode, 400);
+  await call('POST', '/api/users', { token: admin, body: { name: 'Soho GM', email: 'gm@soho.co', role: 'manager', sites: ['soho'], password: 'soho-manager-1' } });
+  const t = (await login('ops@openhouse.co', 'client-admin-1')).json().token;
+
+  const me = (await call('GET', '/api/me', { token: t })).json();
+  assert.deepEqual(me.sites.map((s) => s.id), ['broadcaster', 'canteen']);
+  assert.equal(me.canManage, true);
+  assert.equal((await call('GET', '/api/settings?site=canteen', { token: t })).statusCode, 200);
+  assert.equal((await call('GET', '/api/settings?site=soho', { token: t })).statusCode, 404);
+  assert.equal((await call('PUT', '/api/settings', { token: t, body: { teamPassword: 'another-team-pw' } })).statusCode, 403);
+
+  // Sites: add to their own client only, never move one away.
+  assert.equal((await call('POST', '/api/sites', { token: t, body: { id: 'loft', name: 'Loft', clientId: 'client-1' } })).statusCode, 200);
+  assert.equal((await call('POST', '/api/sites', { token: t, body: { id: 'loft2', name: 'Loft', clientId: 'other-group' } })).statusCode, 400);
+  assert.equal((await call('PUT', '/api/sites/loft', { token: t, body: { clientId: 'other-group' } })).statusCode, 403);
+  assert.equal((await call('PUT', '/api/sites/soho', { token: t, body: { name: 'Mine' } })).statusCode, 403);
+  assert.equal((await call('POST', '/api/clients', { token: t, body: { name: 'New' } })).statusCode, 403);
+  assert.equal((await call('PUT', '/api/clients/client-1', { token: t, body: { active: false } })).statusCode, 403);
+
+  // Users: sees and creates only users inside Open House.
+  const list = (await call('GET', '/api/users', { token: t })).json();
+  assert.deepEqual(list.users.map((u) => u.email), ['ops@openhouse.co']);
+  assert.equal(list.roles.admin, undefined);
+  assert.equal((await call('POST', '/api/users', { token: t, body: { name: 'A', email: 'a@x.co', role: 'admin', password: 'admin-pass-11' } })).statusCode, 400);
+  assert.equal((await call('POST', '/api/users', { token: t, body: { name: 'A', email: 'a@x.co', role: 'manager', sites: ['soho'], password: 'manager-pass-1' } })).statusCode, 400);
+  const host = await call('POST', '/api/users', { token: t, body: { name: 'Host', email: 'host@openhouse.co', role: 'viewer', clients: ['client-1'], password: 'viewer-pass-1' } });
+  assert.equal(host.statusCode, 200, host.body);
+  const soho = (await call('GET', '/api/users', { token: admin })).json().users.find((u) => u.email === 'gm@soho.co');
+  assert.equal((await call('PUT', `/api/users/${soho.id}`, { token: t, body: { active: false } })).statusCode, 403);
+
+  // Whole-client access includes sites added later.
+  const ht = (await login('host@openhouse.co', 'viewer-pass-1')).json().token;
+  assert.deepEqual((await call('GET', '/api/me', { token: ht })).json().sites.map((s) => s.id), ['broadcaster', 'canteen', 'loft']);
+
+  // The client admin's log shows Open House entries only.
+  const log = (await call('GET', '/api/audit', { token: t })).json().map((e) => e.message);
+  assert.ok(log.some((m) => m.includes('Loft')));
+  assert.equal(log.some((m) => m.includes('Soho') || m.includes('Other Group')), false);
+
+  // Archiving a client takes all its sites offline; an empty client can be deleted.
+  await call('PUT', '/api/clients/other-group', { token: admin, body: { active: false } });
+  assert.deepEqual((await call('GET', '/api/cron/release')).json().sites.map((s) => s.site), ['broadcaster', 'canteen', 'loft']);
+  assert.equal((await login('gm@soho.co', 'soho-manager-1')).statusCode, 200);
+  assert.match((await call('DELETE', '/api/clients/other-group', { token: admin })).json().error, /still has sites/);
+  await call('PUT', '/api/sites/soho', { token: admin, body: { clientId: 'client-1' } });
+  assert.equal((await call('DELETE', '/api/clients/other-group', { token: admin })).statusCode, 200);
+  ({ clients } = (await call('GET', '/api/clients', { token: admin })).json());
+  assert.deepEqual(clients.map((c) => c.name), ['Open House']);
 });

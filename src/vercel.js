@@ -7,8 +7,10 @@ import {
   verifyPassword, hashPassword, loginAllowed, recordLoginFailure, userError, inboundUrlFor,
 } from './settings.js';
 import {
-  normaliseSettings, siteView, putSiteView, findSite, findUser, findUserByEmail, sharedPrincipal, userPrincipal,
-  canSeeSite, visibleSites, canAct, publicUser, publicSite, createUser, updateUser, deleteUser, createSite, updateSite, ROLES,
+  normaliseSettings, siteView, putSiteView, findSite, findClient, findUser, findUserByEmail, sharedPrincipal, userPrincipal,
+  canSeeSite, visibleSites, canAct, canManage, canManageSite, canManageUser, managedClients, siteLive,
+  publicUser, publicSite, publicClient, createUser, updateUser, deleteUser, createSite, updateSite,
+  createClient, updateClient, deleteClient, ROLES,
 } from './directory.js';
 import { RedisActivity } from './adapters/redis.js';
 import { connectPostmark, assertPublic } from './postmark.js';
@@ -28,8 +30,9 @@ const DUMMY_HASH = hashPassword('table-runner-no-such-user');
 //   /api/cron/*                      scheduled jobs for every active site; time-gated and idempotent
 //   /api/inbound-email               email webhook, ?key= identifies the site
 //   /api/me, /api/me/password        the signed-in user
-//   /api/sites                       sites this user may see; admins add, rename, archive
-//   /api/users, /api/audit           admin only
+//   /api/clients                     groups that own sites; admins add, rename, archive, delete empty ones
+//   /api/sites                       sites this user may see; admins and client admins add, rename, move, archive
+//   /api/users, /api/audit           admins, and client admins for their own clients
 //   /api/settings?site=              admin only, one site's settings plus shared passwords
 //   everything else                  dashboard for ?site= (default: first visible site)
 export function createHandler({ getRedis, clock = () => londonNow(), log = console.log, fetchImpl = fetch }) {
@@ -100,7 +103,7 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
       }
 
       const liveApp = (site) => createLiveApp({ redis, settings: siteView(settings, site.id), clock });
-      const activeSites = settings.sites.filter((s) => s.active);
+      const activeSites = settings.sites.filter((s) => siteLive(settings, s));
 
       if (path.startsWith('/api/cron/')) {
         // No secret needed: both jobs only act on what is already due and
@@ -127,7 +130,7 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
         const site = settings.sites.find((s) => safeEqual(key, s.inboundSecret));
         if (!site) return send(res, 401, { error: 'Unauthorised' });
         // 403 tells Postmark to stop retrying.
-        if (!site.active) return send(res, 403, { error: `${site.name} is archived; emails are not processed.` });
+        if (!siteLive(settings, site)) return send(res, 403, { error: `${site.name} is archived; emails are not processed.` });
         return send(res, 200, await route(liveApp(site), method, url, () => readBody(req)));
       }
 
@@ -136,7 +139,10 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
       const principal = principalFor(settings, session);
       if (!principal) return send(res, 401, { error: 'Sign in required' });
       const isAdmin = principal.role === 'admin';
+      const manager = canManage(principal);
       const by = principal.email ?? principal.name;
+      const pubSite = (x, s = settings) => publicSite(x, s, { full: canManageSite(principal, x) });
+      const logAdmin = (kind, message, clients) => audit.add(kind, message, { by, clients: clients.filter(Boolean) });
       const newTokenFor = (s) => (session.userId
         ? sessions.create(session.role, s.sessionEpoch, { userId: session.userId, userEpoch: findUser(s, session.userId).epoch })
         : sessions.create(session.role, s.sessionEpoch));
@@ -147,7 +153,13 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
       }
 
       if (path === '/api/me' && method === 'GET') {
-        return send(res, 200, { ...meFor(principal), sites: visibleSites(principal, settings).map((s) => publicSite(s)) });
+        const sites = visibleSites(principal, settings);
+        const clientIds = new Set([...sites.map((x) => x.clientId), ...principal.clients]);
+        return send(res, 200, {
+          ...meFor(principal),
+          sites: sites.map((x) => publicSite(x, settings)),
+          clients: settings.clients.filter((c) => clientIds.has(c.id)).map((c) => ({ id: c.id, name: c.name, active: c.active })),
+        });
       }
 
       if (path === '/api/me/password' && method === 'PUT') {
@@ -157,78 +169,113 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
         if (!(await verifyPassword(currentPassword, user.passwordHash))) return send(res, 400, { error: 'Your current password is not correct.' });
         const r = await updateUser(settings, user.id, { password: newPassword }, { at: clock(), actor: principal });
         await store.save(r.settings);
-        await audit.add('user', `${user.email} changed their password`, { by });
+        await logAdmin('user', `${user.email} changed their password`, user.clients);
         return send(res, 200, { ok: true, token: await newTokenFor(r.settings) });
+      }
+
+      if (path === '/api/clients' || path.startsWith('/api/clients/')) {
+        const id = path.slice('/api/clients/'.length) || null;
+        if (method === 'GET' && !id) {
+          const visible = isAdmin ? settings.clients
+            : settings.clients.filter((c) => principal.clients.includes(c.id) || visibleSites(principal, settings).some((x) => x.clientId === c.id));
+          return send(res, 200, { clients: visible.map((c) => ({ ...publicClient(c, settings), canManage: managedClients(principal, settings).includes(c) })) });
+        }
+        const at = clock();
+        let r;
+        if (method === 'POST' && !id) {
+          if (!isAdmin) return send(res, 403, { error: 'Only an admin can add clients.' });
+          r = createClient(settings, await readBody(req), { at });
+        } else if (method === 'PUT' && id) r = updateClient(settings, id, await readBody(req), { at, actor: principal });
+        else if (method === 'DELETE' && id) {
+          if (!isAdmin) return send(res, 403, { error: 'Only an admin can delete clients.' });
+          r = deleteClient(settings, id);
+        } else return send(res, 405, { error: 'method not allowed' });
+        await store.save(r.settings);
+        if (r.message) await logAdmin('client', r.message, [id ?? r.client.id]);
+        return send(res, 200, r.client ? publicClient(r.client, r.settings) : { ok: true });
       }
 
       if (path === '/api/sites' || path.startsWith('/api/sites/')) {
         const id = path.slice('/api/sites/'.length) || null;
         if (method === 'GET' && !id) {
-          return send(res, 200, { sites: visibleSites(principal, settings).map((s) => publicSite(s, { full: isAdmin })) });
+          return send(res, 200, { sites: visibleSites(principal, settings).map((x) => pubSite(x)) });
         }
-        if (!isAdmin) return send(res, 403, { error: 'Only an admin can add or change sites.' });
-        const body = method === 'GET' ? {} : await readBody(req);
+        if (!manager) return send(res, 403, { error: 'Only an admin or client admin can add or change sites.' });
+        const at = clock();
         let r;
-        if (method === 'POST' && !id) r = createSite(settings, body, { at: clock() });
-        else if (method === 'PUT' && id) r = updateSite(settings, id, body, { at: clock() });
-        else if (method === 'GET' && id) {
+        if (method === 'GET' && id) {
           const site = findSite(settings, id);
-          return site ? send(res, 200, publicSite(site, { full: true })) : send(res, 404, { error: 'Site not found.' });
-        } else return send(res, 405, { error: 'method not allowed' });
+          return site && canManageSite(principal, site) ? send(res, 200, pubSite(site)) : send(res, 404, { error: 'Site not found.' });
+        }
+        if (method === 'POST' && !id) {
+          r = createSite(settings, await readBody(req), { at, actor: principal });
+          r.clients = [r.site.clientId];
+        } else if (method === 'PUT' && id) r = updateSite(settings, id, await readBody(req), { at, actor: principal });
+        else return send(res, 405, { error: 'method not allowed' });
         await store.save(r.settings);
-        if (r.message) await audit.add('site', r.message, { by, site: r.site.id });
-        return send(res, 200, publicSite(r.site, { full: true }));
+        if (r.message) await logAdmin('site', r.message, r.clients);
+        return send(res, 200, pubSite(r.site, r.settings));
       }
 
       if (path === '/api/users' || path.startsWith('/api/users/')) {
-        if (!isAdmin) return send(res, 403, { error: 'Only an admin can view or change users.' });
+        if (!manager) return send(res, 403, { error: 'Only an admin or client admin can view or change users.' });
         const id = path.slice('/api/users/'.length) || null;
         if (method === 'GET' && !id) {
           const signIns = Object.fromEntries(((await redis.cmd('HVALS', SIGN_IN_KEY)) ?? []).map((v) => { const x = JSON.parse(v); return [x.id, x.at]; }));
+          const clients = managedClients(principal, settings);
+          const roles = isAdmin ? ROLES : Object.fromEntries(Object.entries(ROLES).filter(([k]) => k !== 'admin'));
           return send(res, 200, {
-            roles: ROLES,
-            sites: settings.sites.map((s) => publicSite(s)),
-            users: settings.users.map((u) => publicUser({ ...u, lastSignInAt: signIns[u.id] ?? null })),
+            roles,
+            canGrantAll: isAdmin,
+            clients: clients.map((c) => ({ id: c.id, name: c.name, active: c.active })),
+            sites: settings.sites.filter((x) => canManageSite(principal, x)).map((x) => publicSite(x, settings)),
+            users: settings.users.filter((u) => canManageUser(principal, u, settings))
+              .map((u) => publicUser({ ...u, lastSignInAt: signIns[u.id] ?? null })),
           });
         }
         const actor = principal;
         let r;
-        if (method === 'POST' && !id) r = await createUser(settings, await readBody(req), { at: clock() });
+        if (method === 'POST' && !id) r = await createUser(settings, await readBody(req), { at: clock(), actor });
         else if (method === 'PUT' && id) r = await updateUser(settings, id, await readBody(req), { at: clock(), actor });
         else if (method === 'DELETE' && id) r = deleteUser(settings, id, { actor });
         else return send(res, 405, { error: 'method not allowed' });
         await store.save(r.settings);
-        if (r.message) await audit.add('user', r.message, { by });
+        if (r.message) await logAdmin('user', r.message, r.clients ?? []);
         return send(res, 200, r.user ? publicUser(r.user) : { ok: true });
       }
 
       if (path === '/api/audit' && method === 'GET') {
-        if (!isAdmin) return send(res, 403, { error: 'Only an admin can view the admin log.' });
-        return send(res, 200, await audit.list({ limit: 200 }));
+        if (!manager) return send(res, 403, { error: 'Only an admin or client admin can view the admin log.' });
+        const log = await audit.list({ limit: 500 });
+        // Client admins see entries about their own clients only.
+        const mine = isAdmin ? log : log.filter((e) => (e.detail?.clients ?? []).some((c) => principal.clients.includes(c)));
+        return send(res, 200, mine.slice(0, 200));
       }
 
       // Everything below works on one site.
       const wanted = url.searchParams.get('site');
-      const site = wanted ? findSite(settings, wanted) : visibleSites(principal, settings).find((s) => s.active);
-      if (wanted && (!site || !canSeeSite(principal, site))) return send(res, 404, { error: `Site ${wanted} not found, or not one of yours.` });
+      const site = wanted ? findSite(settings, wanted) : visibleSites(principal, settings).find((x) => siteLive(settings, x));
+      if (wanted && (!site || !canSeeSite(principal, site, settings))) return send(res, 404, { error: `Site ${wanted} not found, or not one of yours.` });
       if (!site) return send(res, 403, { error: 'Your account has no sites yet. Ask an admin to give you one.' });
       const app = liveApp(site);
 
       if (path === '/api/settings') {
-        if (!isAdmin) return send(res, 403, { error: 'Only an admin can view or change settings.' });
+        if (!canManageSite(principal, site)) return send(res, 403, { error: 'Only an admin, or a client admin for this site, can view or change its settings.' });
         const origin = `${req.headers['x-forwarded-proto'] ?? 'https'}://${req.headers['x-forwarded-host'] ?? req.headers.host}`;
         const view = siteView(settings, site.id);
-        const withSite = (s, v) => ({ site: publicSite(findSite(s, site.id)), ...publicSettings(v, origin) });
+        const withSite = (s, v) => ({ site: publicSite(findSite(s, site.id), s), canChangeSharedPasswords: isAdmin, ...publicSettings(v, origin) });
         if (method === 'GET') return send(res, 200, withSite(settings, view));
         if (method === 'PUT') {
           const patch = await readBody(req);
+          // Shared passwords cover every client, so only an admin sets them.
+          if (!isAdmin && (patch.teamPassword || patch.adminPassword)) return send(res, 403, { error: 'Only an admin can change the shared passwords.' });
           const { settings: nextView, changed } = await applySettingsChange(view, patch);
           await applyPostmark({ patch, prev: view, next: nextView, changed, origin, clock, fetchImpl });
           const next = putSiteView(settings, site.id, nextView);
           await store.save(next);
           if (changed.length) {
             await app.activity.add('settings', `Settings changed: ${changed.join(', ')}`);
-            await audit.add('settings', `${site.name}: settings changed: ${changed.join(', ')}`, { by, site: site.id });
+            await logAdmin('settings', `${site.name}: settings changed: ${changed.join(', ')}`, [site.clientId]);
           }
           const body = { ...withSite(next, nextView), changed };
           // A shared password change signs everyone out; keep this admin signed in.
@@ -241,7 +288,8 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
       if (method !== 'GET' && !canAct(principal)) return send(res, 403, { error: 'Your account can view this site but not change anything.' });
       const result = await route(app, method, url, () => readBody(req));
       if (path === '/api/status') {
-        return send(res, 200, { ...result, role: principal.role, site: site.id, user: meFor(principal) });
+        const client = findClient(settings, site.clientId);
+        return send(res, 200, { ...result, role: principal.role, site: site.id, client: client && { id: client.id, name: client.name }, user: meFor(principal) });
       }
       return send(res, 200, result);
     } catch (err) {
@@ -263,7 +311,7 @@ function principalFor(settings, session) {
 }
 
 function meFor(p) {
-  return { kind: p.kind, name: p.name, email: p.email ?? null, role: p.role, canAct: canAct(p), isAdmin: p.role === 'admin' };
+  return { kind: p.kind, name: p.name, email: p.email ?? null, role: p.role, canAct: canAct(p), isAdmin: p.role === 'admin', canManage: canManage(p) };
 }
 
 // Connects Postmark when a token is given, and keeps it pointed at the
