@@ -106,7 +106,8 @@ alerting, inbound email handling.
 Blocked:
 
 1. SevenRooms live client: needs venue API credentials and SevenRooms' API
-   documentation from the account manager.
+   documentation from the account manager. Requested 31 October 2026, see
+   `docs/sevenrooms-api-request.md`.
 2. OpenTable email patterns: the current patterns are provisional. Replace them
    from 10 to 20 real confirmation, modification and cancellation emails.
 3. OpenTable booking list for reconciliation: depends on partner API access, or
