@@ -4,9 +4,10 @@ import { releasesDue } from './allocation.js';
 // passed. If SevenRooms cannot release by API, `manual: true` sends the list
 // to the host as a checklist instead.
 //
-// A release is two-sided: the table must also stop selling on OpenTable, or
-// OpenTable can book it after SevenRooms has resold it. Without an OpenTable
-// adapter that can close tables, the host is told to close them by hand.
+// OpenTable gives us no way to close a table, so a released table stays
+// bookable there until a host closes it by hand. The reserve held back by
+// `release.holdBack` takes any late OpenTable booking meanwhile; the sync
+// alerts when it runs out. With an adapter that can close tables, it is used.
 export async function runReleases({ config, store, sevenRooms, openTable, alert, now, fromDate, toDate, manual = false }) {
   const released = await store.releasedKeys();
   // Pre-load occupancy so releasesDue can stay synchronous.
@@ -36,9 +37,9 @@ export async function runReleases({ config, store, sevenRooms, openTable, alert,
     for (const slot of due) await openTable.closeTable(slot);
   } else {
     await alert.send({
-      severity: 'high',
+      severity: 'medium',
       code: 'close_in_opentable',
-      message: `Close ${due.length} released table(s) in OpenTable now, or OpenTable can still sell them.`,
+      message: `${due.length} table(s) released to SevenRooms are still bookable in OpenTable. Close them in OpenTable when you can and mark them closed in Table Runner. Until then the reserve covers late OpenTable bookings; Table Runner alerts if it runs out.`,
       tables: due.map(({ date, sitting, table }) => ({ date, sitting, table })),
     });
   }

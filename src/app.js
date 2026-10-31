@@ -2,7 +2,7 @@ import { SyncService } from './sync.js';
 import { parseOpenTableEmail } from './adapters/opentable-email.js';
 import { reconcile } from './reconcile.js';
 import { runReleases } from './release.js';
-import { addDays, allocatedTables, releaseAt } from './allocation.js';
+import { addDays, allocatedTables, releaseAt, exposureFor, holdBackFor, weekday } from './allocation.js';
 import { MemoryState, MemoryLock } from './store.js';
 
 // Wires the sync, releases and reconciliation together and keeps the state
@@ -15,7 +15,8 @@ export function createApp({
   config, store, sevenRooms, alerts, ledger, activity, clock, mode,
   state = new MemoryState(), lock = new MemoryLock(), manualRelease = false,
 }) {
-  const sync = new SyncService({ config, store, sevenRooms, alert: alerts });
+  const closedKeys = async () => (store.closedInOpenTableKeys ? store.closedInOpenTableKeys() : new Set());
+  const sync = new SyncService({ config, store, sevenRooms, alert: alerts, clock });
 
   async function ingestEvent(event, via) {
     return lock.run(async () => {
@@ -53,6 +54,8 @@ export function createApp({
 
     ingestEvent,
 
+    today: () => clock().slice(0, 10),
+
     async reconcile({ days = 7 } = {}) {
       const fromDate = clock().slice(0, 10);
       const toDate = addDays(fromDate, days - 1);
@@ -89,19 +92,85 @@ export function createApp({
     },
 
     async dayView(date) {
-      const released = await store.releasedKeys();
+      const [released, closed] = await Promise.all([store.releasedKeys(), closedKeys()]);
       const bookings = await store.active({ fromDate: date, toDate: date });
+      const due = clock() >= releaseAt(config, date);
       const sittings = config.sittings.map((s) => {
         const tables = allocatedTables(config, date, s.name).map((id) => {
           const seats = config.tables[id]?.seats ?? 0;
+          const key = `${date}|${s.name}|${id}`;
           const booking = bookings.find((b) => b.sitting === s.name && b.table === id);
           if (booking) return { id, seats, status: 'sold', booking };
-          if (released.has(`${date}|${s.name}|${id}`)) return { id, seats, status: 'released' };
-          return { id, seats, status: 'open' };
+          if (released.has(key)) return { id, seats, status: 'released', key, openTableClosed: closed.has(key) };
+          return { id, seats, status: due ? 'reserve' : 'open' };
         });
-        return { ...s, tables, ...totals(tables) };
+        const taken = new Set(bookings.filter((b) => b.sitting === s.name).map((b) => b.table));
+        const e = exposureFor(config, { date, sitting: s.name, taken, released, closed });
+        return {
+          ...s, tables, ...totals(tables),
+          holdBack: holdBackFor(config, date, s.name),
+          exposed: due ? e.exposed.length : 0,
+          reserve: due ? e.reserve.length : 0,
+          atRisk: due && e.atRisk,
+          late: bookings.filter((b) => b.sitting === s.name && b.late).length,
+        };
       });
-      return { date, releaseAt: releaseAt(config, date), sittings, ...totals(sittings.flatMap((s) => s.tables)) };
+      const sum = (k) => sittings.reduce((n, x) => n + x[k], 0);
+      return {
+        date, releaseAt: releaseAt(config, date), releaseDue: due, sittings,
+        ...totals(sittings.flatMap((s) => s.tables)),
+        exposed: sum('exposed'), reserve: sum('reserve'), late: sum('late'), atRisk: sittings.some((s) => s.atRisk),
+      };
+    },
+
+    // A host confirms released tables are now closed in OpenTable. They stop
+    // counting as exposure. Takes keys, or a date and sitting for all of it.
+    async confirmClosed({ keys, date, sitting } = {}) {
+      return lock.run(async () => {
+        const released = await store.releasedKeys();
+        const wanted = Array.isArray(keys) ? keys.map(String)
+          : [...released].filter((k) => k.startsWith(`${date}|${sitting ? `${sitting}|` : ''}`));
+        const done = [];
+        for (const k of wanted) {
+          if (!released.has(k)) continue;
+          await store.markClosedInOpenTable(k);
+          done.push(k);
+        }
+        if (done.length) await activity.add('opentable.closed', `Marked ${done.length} table(s) closed in OpenTable: ${done.map((k) => k.split('|').slice(1).join(' ')).join(', ')}${date ? ` on ${date}` : ''}`);
+        return { closed: done };
+      });
+    },
+
+    // Late OpenTable bookings per weekday and sitting over past service dates,
+    // and the reserve that would have covered them. The basis for setting
+    // release.holdBack: hold back enough to cover all but the rarest nights.
+    async lateDemand({ weeks = 8 } = {}) {
+      const toDate = addDays(clock().slice(0, 10), -1);
+      const fromDate = addDays(toDate, -(weeks * 7) + 1);
+      const bookings = (await store.all({ fromDate, toDate })).filter((b) => b.status === 'active' || b.status === 'cancelled');
+      const tracked = bookings.filter((b) => b.bookedAt);
+      const start = tracked.reduce((m, b) => (b.date < m ? b.date : m), toDate);
+      const rows = new Map();
+      for (let date = start; date <= toDate && tracked.length; date = addDays(date, 1)) {
+        for (const s of config.sittings) {
+          const key = `${weekday(date)}|${s.name}`;
+          if (!rows.has(key)) rows.set(key, { weekday: weekday(date), sitting: s.name, nights: [], holdBack: holdBackFor(config, date, s.name) });
+          rows.get(key).nights.push(tracked.filter((b) => b.date === date && b.sitting === s.name && b.late).length);
+        }
+      }
+      const order = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+      const out = [...rows.values()].map((r) => {
+        const sorted = [...r.nights].sort((a, b) => a - b);
+        const p90 = sorted.length ? sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.9) - 1)] : 0;
+        const covered = r.nights.filter((n) => n <= r.holdBack).length;
+        return {
+          weekday: r.weekday, sitting: r.sitting, nights: r.nights.length,
+          average: r.nights.length ? Math.round((r.nights.reduce((a, b) => a + b, 0) / r.nights.length) * 10) / 10 : 0,
+          p90, max: sorted.at(-1) ?? 0, holdBack: r.holdBack, recommended: p90,
+          coveredPct: r.nights.length ? Math.round((covered / r.nights.length) * 100) : null,
+        };
+      }).sort((a, b) => order.indexOf(a.weekday) - order.indexOf(b.weekday) || a.sitting.localeCompare(b.sitting));
+      return { fromDate: tracked.length ? start : null, toDate, weeks, rows: out };
     },
 
     async weekView(fromDate, days = 7) {
@@ -109,7 +178,9 @@ export function createApp({
       for (let i = 0; i < days; i++) out.push(await this.dayView(addDays(fromDate, i)));
       return out.map((d) => ({
         date: d.date,
-        sittings: d.sittings.map(({ name, allocated, sold, released, seatsAllocated, covers }) => ({ name, allocated, sold, released, seatsAllocated, covers })),
+        sittings: d.sittings.map(({ name, allocated, sold, released, seatsAllocated, covers, exposed, reserve, atRisk }) => ({ name, allocated, sold, released, seatsAllocated, covers, exposed, reserve, atRisk })),
+        exposed: d.exposed,
+        atRisk: d.atRisk,
         allocated: d.allocated,
         sold: d.sold,
         covers: d.covers,
@@ -120,7 +191,12 @@ export function createApp({
       const [openAlerts, lastEmailAt, lastReconciliation, lastRelease] = await Promise.all([
         alerts.open(), state.get('lastEmailAt'), state.get('lastReconciliation'), state.get('lastRelease'),
       ]);
+      const week = await this.weekView(clock().slice(0, 10), 7);
       return {
+        exposure: {
+          exposed: week.reduce((n, d) => n + d.exposed, 0),
+          atRisk: week.flatMap((d) => d.sittings.filter((x) => x.atRisk).map((x) => ({ date: d.date, sitting: x.name, exposed: x.exposed }))),
+        },
         venue: config.venue,
         venueName: config.venueName ?? config.venue,
         now: clock(),

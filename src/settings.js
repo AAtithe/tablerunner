@@ -214,6 +214,21 @@ export function validateFloorPlan(c) {
   }
   if (!Number.isInteger(c.release?.daysBefore) || c.release.daysBefore < 0) p.push('"release.daysBefore" must be a whole number of days.');
   if (!HM.test(c.release?.time ?? '')) p.push('"release.time" must be HH:MM.');
+  const hb = c.release?.holdBack;
+  const count = (v) => Number.isInteger(v) && v >= 0;
+  if (hb !== undefined && !count(hb)) {
+    if (!hb || typeof hb !== 'object' || Array.isArray(hb)) p.push('"release.holdBack" must be a whole number, or an object of sittings and weekdays.');
+    else for (const [k, v] of Object.entries(hb)) {
+      const isDay = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].includes(k);
+      if (k !== 'default' && !names.has(k) && !isDay) p.push(`"release.holdBack.${k}" is not a sitting, weekday or default.`);
+      else if (isDay && v && typeof v === 'object' && !Array.isArray(v)) {
+        for (const [sk, sv] of Object.entries(v)) {
+          if (!names.has(sk)) p.push(`"release.holdBack.${k}.${sk}" is not a sitting.`);
+          else if (!count(sv)) p.push(`"release.holdBack.${k}.${sk}" must be a whole number of tables.`);
+        }
+      } else if (!count(v)) p.push(`"release.holdBack.${k}" must be a whole number of tables.`);
+    }
+  }
   return p;
 }
 
