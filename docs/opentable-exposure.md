@@ -65,21 +65,56 @@ from SevenRooms; that is the price of not being able to close OpenTable.
 A plain number applies to every sitting. Otherwise a weekday entry wins, then
 a sitting entry, then `default`.
 
-Size it from evidence, not instinct. The dashboard's "Reserve sizing" panel
-counts, for each weekday and sitting over the last 8 weeks, how many OpenTable
-bookings arrived after release time on each night:
+Size it from evidence, not instinct. The dashboard's Coaching section learns
+late OpenTable demand for each weekday and sitting from the venue's own
+history and suggests a reserve for each:
 
-- 90% of nights: set `holdBack` to this. The reserve then covers nine nights in ten.
-- Covered: the share of past nights the current reserve would have absorbed.
-  Below 90%, raise it. At 100% with an average near zero, lower it and
-  release more seats to SevenRooms.
-- Worst night: the size of the occasional spike. Those nights are what the
-  alerts and the manual close exist for.
+- Expected late: the model's forecast of late OpenTable bookings per night.
+  Recent weeks count most (half-life four weeks), and nights with little
+  history lean on the venue-wide average until their own evidence builds.
+- Suggested reserve: the smallest reserve that covers 9 nights in 10 under
+  that forecast. Shown once a night has four weeks of history; reliable from
+  eight.
+- Reserve now: the current `holdBack`. When the suggestion is higher, a
+  coaching note says so.
 
-Start with 1 per sitting and 2 on Friday and Saturday late until 4 to 6 weeks
-of data exist, then set it from the panel and review it monthly alongside the
-allocation itself. A later release time (fewer `daysBefore`) also shrinks late
+Broadcaster starts on 1 per sitting and 2 on Friday and Saturday late. Saved
+floor plans with no `holdBack` are given these figures automatically, once;
+a figure an admin has set is never changed. After four to six weeks, set the
+reserve from the Coaching section and review it monthly alongside the
+allocation. A later release time (fewer `daysBefore`) also shrinks late
 demand, because fewer bookings arrive after release.
+
+## Coaching
+
+The Coaching section is there to help the team get better month by month,
+not to grade individuals. Hosts share one team login, so every measure is for
+the team as a whole.
+
+It has three parts:
+
+1. Coaching notes. Red: improve now. Amber: worth a look. Green: on target.
+   Each note says what the numbers show, why it matters for the guest, and the
+   target. Example: "Only 80% of released tables were closed in OpenTable
+   before service. Typical time from release to close: 2.1 hours." with the
+   target "At least 90% closed before service, within 2 hours of release."
+2. What the model has learned, per night: late demand, suggested reserve,
+   and the share of the OpenTable allocation sold by release time. Sold by
+   release above 90% with the sitting full on half its nights suggests one
+   more OpenTable table; below 50% suggests one fewer. Change one night at a
+   time and give it four weeks.
+3. Team habits, week by week, for eight weeks: share of released tables
+   closed in OpenTable before service, hours from release to close, share of
+   high alerts answered within 30 minutes, minutes to answer, times the
+   reserve ran out, times OpenTable oversold, unreadable emails.
+
+The model re-learns from all history every time the page loads, so it
+improves as each night is recorded and needs no training by hand. It only
+advises: nothing in the floor plan changes until an admin changes it on
+Settings. That keeps the judgement with the people accountable for service.
+
+Use it in the weekly manager review: pick the one red note that matters most,
+agree the habit that fixes it, and check the habits table the following week.
 
 ## Monitoring
 

@@ -17,6 +17,7 @@ a morning reconciliation catches anything the sync missed.
 | `src/allocation.js` | Table assignment within the allocation, release schedule |
 | `src/sync.js` | Applies OpenTable created / modified / cancelled events to SevenRooms, idempotently |
 | `src/release.js` | Releases unsold allocation less the reserve, by API or as a host checklist (`manual: true`) |
+| `src/coaching.js` | Learns late OpenTable demand and sell-through per night, measures team habits by week, writes coaching notes |
 | `docs/opentable-exposure.md` | Why released tables stay open in OpenTable, sizing the reserve, monitoring |
 | `src/reconcile.js` | Daily OpenTable vs SevenRooms comparison with alert |
 | `src/adapters/opentable-email.js` | Parses OpenTable notification emails (fallback if no partner API) |
@@ -46,13 +47,15 @@ Open http://127.0.0.1:3000. It shows:
 - Each service day: every protected table by sitting, marked sold (guest, time, party, both booking references), open or released.
 - Next 7 days: tables sold against allocation per sitting, used to size the allocation each month.
 - Open alerts with acknowledge, and a full activity log.
+- Coaching: learned reserve and allocation suggestions per night, team habits
+  by week, and coaching notes with targets.
 - Buttons to run reconciliation and releases on demand.
 
 The local demo binds to localhost. `DASHBOARD_PASSWORD` adds a password if
 you expose it on a network; the live service on Vercel does not use it.
 
 API: `GET /api/status`, `GET /api/day?date=`, `GET /api/week?from=`,
-`GET /api/alerts`, `GET /api/activity`, `GET /api/late-demand?weeks=`,
+`GET /api/alerts`, `GET /api/activity`, `GET /api/coaching`, `GET /api/late-demand?weeks=`,
 `POST /api/reconcile`, `POST /api/release`, `POST /api/opentable-closed`, `POST /api/inbound-email`, `POST /api/alerts/:id/ack`.
 
 ## Live deployment (Vercel)

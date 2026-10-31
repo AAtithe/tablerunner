@@ -43,6 +43,6 @@ export async function runReleases({ config, store, sevenRooms, openTable, alert,
       tables: due.map(({ date, sitting, table }) => ({ date, sitting, table })),
     });
   }
-  for (const slot of due) await store.markReleased(slot.key);
+  for (const slot of due) await store.markReleased(slot.key, now);
   return due;
 }

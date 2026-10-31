@@ -4,7 +4,7 @@ import { ConfigError, createLiveApp } from './live.js';
 import { londonNow } from './clock.js';
 import {
   SettingsStore, Sessions, isConfigured, ensureSetupCode, completeSetup, applySettingsChange, publicSettings,
-  verifyPassword, loginAllowed, recordLoginFailure, userError, inboundUrlFor,
+  verifyPassword, loginAllowed, recordLoginFailure, userError, inboundUrlFor, withStartingHoldBack,
 } from './settings.js';
 import { connectPostmark, assertPublic } from './postmark.js';
 
@@ -72,7 +72,15 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
         return send(res, 200, { token: await sessions.create(role, settings.sessionEpoch), role });
       }
 
+      const migrated = withStartingHoldBack(settings);
+      if (migrated) {
+        await store.save(migrated);
+        settings = migrated;
+      }
       const app = createLiveApp({ redis, settings, clock });
+      if (migrated) {
+        await app.activity.add('settings', `Settings changed: OpenTable reserve set to the starting figures ${JSON.stringify(migrated.floorPlan.release.holdBack)}`);
+      }
 
       if (path.startsWith('/api/cron/')) {
         // No secret needed: both jobs only act on what is already due and

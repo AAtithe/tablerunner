@@ -74,7 +74,13 @@ export const exampleConfig = {
     "daysBefore": 2,
     "time": "16:00",
     "holdBack": {
-      "default": 1
+      "default": 1,
+      "fri": {
+        "late": 2
+      },
+      "sat": {
+        "late": 2
+      }
     }
   }
 };

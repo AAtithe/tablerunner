@@ -30,6 +30,8 @@ export class RedisStore {
     this.key = `${prefix}:bookings`;
     this.releasedKey = `${prefix}:released`;
     this.closedKey = `${prefix}:otclosed`;
+    this.releasedAtKey = `${prefix}:released:at`;
+    this.closedAtKey = `${prefix}:otclosed:at`;
   }
 
   async get(confirmation) {
@@ -51,16 +53,29 @@ export class RedisStore {
     return new Set(active.filter((b) => b.sitting === sitting).map((b) => b.table));
   }
 
-  async markReleased(key) {
+  async markReleased(key, at = null) {
     await this.redis.cmd('SADD', this.releasedKey, key);
+    if (at) await this.redis.cmd('HSETNX', this.releasedAtKey, key, at);
   }
 
   async releasedKeys() {
     return new Set((await this.redis.cmd('SMEMBERS', this.releasedKey)) ?? []);
   }
 
-  async markClosedInOpenTable(key) {
+  async markClosedInOpenTable(key, at = null) {
     await this.redis.cmd('SADD', this.closedKey, key);
+    if (at) await this.redis.cmd('HSETNX', this.closedAtKey, key, at);
+  }
+
+  async eventTimes() {
+    const map = async (k) => {
+      const flat = (await this.redis.cmd('HGETALL', k)) ?? [];
+      if (!Array.isArray(flat)) return new Map(Object.entries(flat));
+      const m = new Map();
+      for (let i = 0; i < flat.length; i += 2) m.set(flat[i], flat[i + 1]);
+      return m;
+    };
+    return { released: await map(this.releasedAtKey), closed: await map(this.closedAtKey) };
   }
 
   async closedInOpenTableKeys() {

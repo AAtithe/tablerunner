@@ -7,6 +7,7 @@ export class MemoryStore {
     this.bookings = new Map();
     this.released = new Set();
     this.closed = new Set();
+    this.times = { released: new Map(), closed: new Map() };
   }
 
   async get(confirmation) {
@@ -31,8 +32,9 @@ export class MemoryStore {
     return taken;
   }
 
-  async markReleased(key) {
+  async markReleased(key, at = null) {
     this.released.add(key);
+    if (at && !this.times.released.has(key)) this.times.released.set(key, at);
   }
 
   async releasedKeys() {
@@ -40,8 +42,15 @@ export class MemoryStore {
   }
 
   // Released tables a host has confirmed closed in OpenTable by hand.
-  async markClosedInOpenTable(key) {
+  async markClosedInOpenTable(key, at = null) {
     this.closed.add(key);
+    if (at && !this.times.closed.has(key)) this.times.closed.set(key, at);
+  }
+
+  // When each table was released, and when a host confirmed it closed in
+  // OpenTable. The coaching section measures the gap.
+  async eventTimes() {
+    return { released: new Map(this.times.released), closed: new Map(this.times.closed) };
   }
 
   async closedInOpenTableKeys() {
