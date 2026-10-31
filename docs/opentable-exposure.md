@@ -52,6 +52,8 @@ from SevenRooms; that is the price of not being able to close OpenTable.
 
 ## Setting the reserve
 
+The step-by-step manager guide is [manager-setting-the-reserve.md](manager-setting-the-reserve.md).
+
 `release.holdBack` in the floor plan, on the Settings screen:
 
 ```json
