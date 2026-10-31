@@ -130,7 +130,8 @@ Table Runner watches this continuously; hosts act on what it raises.
 | "Open in OpenTable" row | Next 7 days grid | Count of released tables still open per day; red cell means at risk |
 | Table cards | Service day | Amber dashed: released, still open in OpenTable. Green outline: reserve |
 
-Daily routine for the host, before service:
+Daily routine for the host, before service (the full host guide is
+[host-daily-routine.md](host-daily-routine.md)):
 
 1. Check the "Open in OpenTable" tile. Red means act first.
 2. Close today's and tomorrow's released tables in OpenTable, or stop online
