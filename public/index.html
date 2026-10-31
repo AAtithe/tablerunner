@@ -847,14 +847,14 @@ $('s-rotate-key').onclick = async () => {
   if (!rotateArmed) {
     rotateArmed = true;
     $('s-rotate-key').textContent = 'Confirm new encryption key';
-    msg('Every site\'s client secret will be re-encrypted under a new key and the old key deleted. Click again to confirm.', false);
+    msg('Every SevenRooms client secret and Postmark token will be re-encrypted under a new key and the old key deleted. Click again to confirm.', false);
     setTimeout(() => { rotateArmed = false; $('s-rotate-key').textContent = 'New encryption key'; }, 8000);
     return;
   }
   rotateArmed = false;
   $('s-rotate-key').textContent = 'New encryption key';
   const r = await saveSettings({ rotateEncryptionKey: true });
-  if (r) msg('New encryption key created. Every saved client secret was re-encrypted under it.', true);
+  if (r) msg('New encryption key created. Every saved client secret and Postmark token was re-encrypted under it.', true);
 };
 
 let regenArmed = false;

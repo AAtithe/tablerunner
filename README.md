@@ -190,15 +190,19 @@ Access:
   disabling them, signs that user out.
 - Ten failed sign-ins from one address lock it out for 15 minutes.
 - Passwords are stored only as scrypt hashes.
-- Each site's SevenRooms client secret is stored encrypted (AES-256-GCM). The
-  app creates the key itself and keeps it in Redis apart from the settings.
-  One key covers every site; an admin replaces it with the "New encryption
-  key" button on a site's Settings screen, which re-encrypts every site's
-  secret. Secrets are never sent back to the browser or written to the
-  activity log. Because the key is in the same database, anyone with full
-  read access to Redis can recover them: keep Redis access to the Vercel team,
-  and ask SevenRooms to revoke and reissue the credentials if the database is
-  ever exposed.
+- Each site's SevenRooms client secret, each site's Postmark server token and
+  the install's Postmark sending token are stored encrypted (AES-256-GCM),
+  each bound to its own field so one cannot be moved into another. The app
+  creates the key itself and keeps it in Redis apart from the settings. One
+  key covers the whole install; an admin replaces it with the "New encryption
+  key" button on a site's Settings screen, which re-encrypts every secret and
+  token. Postmark tokens saved in plain text by an earlier version are
+  encrypted in place the first time the settings are read, and the admin log
+  records how many. Secrets and tokens are never sent back to the browser or
+  written to the activity or admin log. Because the key is in the same
+  database, anyone with full read access to Redis can recover them: keep
+  Redis access to the Vercel team, and ask SevenRooms and Postmark to revoke
+  and reissue the credentials if the database is ever exposed.
 - If a client secret cannot be read while SevenRooms is live, every booking
   raises `sync_failed` instead of the service quietly falling back to shadow
   mode.
