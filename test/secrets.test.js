@@ -1,41 +1,49 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { encryptSecret, decryptSecret, secretKeyFromEnv, secretProblem, isEncrypted } from '../src/secrets.js';
+import { FakeRedis } from './fake-redis.js';
+import {
+  addKey, decryptSecret, encryptSecret, isEncrypted, loadKeyring, pruneKeyring, secretProblem,
+} from '../src/secrets.js';
 
-const key = secretKeyFromEnv({ TABLE_RUNNER_SECRET_KEY: 'k'.repeat(32) });
-const other = secretKeyFromEnv({ TABLE_RUNNER_SECRET_KEY: 'x'.repeat(32) });
 const FIELD = 'sevenRooms.clientSecret';
 
-test('a secret round-trips and is never stored as written', () => {
-  const a = encryptSecret('s3cret', key, FIELD);
-  const b = encryptSecret('s3cret', key, FIELD);
+test('the app creates its own key once and keeps it', async () => {
+  const redis = new FakeRedis();
+  const a = await loadKeyring(redis);
+  const b = await loadKeyring(redis);
+  assert.deepEqual(a, b);
+  assert.equal(Buffer.from(a.keys[a.current].key, 'base64url').length, 32);
+});
+
+test('a secret round-trips and is never stored as written', async () => {
+  const ring = await loadKeyring(new FakeRedis());
+  const a = encryptSecret('s3cret', ring, FIELD);
+  const b = encryptSecret('s3cret', ring, FIELD);
   assert.ok(isEncrypted(a));
   assert.equal(a.includes('s3cret'), false);
   assert.notEqual(a, b, 'a fresh IV each time');
-  assert.equal(decryptSecret(a, key, FIELD), 's3cret');
+  assert.equal(decryptSecret(a, ring, FIELD), 's3cret');
 });
 
-test('the key must be set and at least 32 characters', () => {
-  assert.equal(secretKeyFromEnv({}), null);
-  assert.equal(secretKeyFromEnv({ TABLE_RUNNER_SECRET_KEY: 'short' }), null);
-  assert.throws(() => encryptSecret('s3cret', null, FIELD), /not set/);
-});
-
-test('a wrong key, another field, tampering or plain text are all refused', () => {
-  const stored = encryptSecret('s3cret', key, FIELD);
-  assert.throws(() => decryptSecret(stored, other, FIELD), /cannot be read/);
-  assert.throws(() => decryptSecret(stored, key, 'other.field'), /cannot be read/);
+test('another key, another field, tampering or plain text are all refused', async () => {
+  const ring = await loadKeyring(new FakeRedis());
+  const other = await loadKeyring(new FakeRedis());
+  const stored = encryptSecret('s3cret', ring, FIELD);
+  assert.throws(() => decryptSecret(stored, other, FIELD), /no longer exists/);
+  assert.throws(() => decryptSecret(stored, ring, 'other.field'), /cannot be decrypted/);
   const parts = stored.split('.');
-  parts[3] = Buffer.from('tampered').toString('base64url');
-  assert.throws(() => decryptSecret(parts.join('.'), key, FIELD), /cannot be read/);
-  assert.throws(() => decryptSecret('s3cret', key, FIELD), /before secrets were encrypted/);
-  assert.throws(() => decryptSecret(stored, null, FIELD), /not set/);
+  parts[4] = Buffer.from('tampered').toString('base64url');
+  assert.throws(() => decryptSecret(parts.join('.'), ring, FIELD), /cannot be decrypted/);
+  assert.throws(() => decryptSecret('s3cret', ring, FIELD), /before secrets were encrypted/);
 });
 
-test('secretProblem explains without revealing the value', () => {
-  assert.equal(secretProblem('', key, FIELD), null);
-  assert.equal(secretProblem(encryptSecret('s3cret', key, FIELD), key, FIELD), null);
-  const problem = secretProblem(encryptSecret('s3cret', key, FIELD), other, FIELD);
-  assert.match(problem, /cannot be read/);
-  assert.equal(problem.includes('s3cret'), false);
+test('during a rotation old secrets stay readable until the old key is dropped', async () => {
+  const ring = await loadKeyring(new FakeRedis());
+  const old = encryptSecret('s3cret', ring, FIELD);
+  const rotated = addKey(ring, '2026-11-01');
+  assert.notEqual(rotated.current, ring.current);
+  assert.equal(decryptSecret(old, rotated, FIELD), 's3cret');
+  assert.match(secretProblem(old, pruneKeyring(rotated), FIELD), /no longer exists/);
+  assert.equal(secretProblem(old, rotated, FIELD), null);
+  assert.equal(secretProblem('', rotated, FIELD), null);
 });

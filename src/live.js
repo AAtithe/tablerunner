@@ -46,9 +46,9 @@ export function redisFromEnv(env, { fetchImpl = fetch } = {}) {
   throw new ConfigError(`Storage is not connected. In Vercel, open the tablerunner project, choose Storage, connect a Redis database to Production, then redeploy.${detail}`);
 }
 
-// Builds the live service from the settings saved in the app. `secretKey`
+// Builds the live service from the settings saved in the app. `keyring`
 // decrypts the SevenRooms client secret.
-export function createLiveApp({ redis, settings, clock = () => londonNow(), secretKey = null }) {
+export function createLiveApp({ redis, settings, keyring, clock = () => londonNow() }) {
   const config = settings.floorPlan ?? exampleConfig;
   const sr = settings.sevenRooms ?? { mode: 'shadow' };
   const sevenRoomsLive = sr.mode === 'live' && SevenRoomsClient.implemented;
@@ -60,7 +60,7 @@ export function createLiveApp({ redis, settings, clock = () => londonNow(), secr
     sevenRoomsMode = { live: false, value: 'Shadow', detail: 'Recording where each booking would go; SevenRooms not touched' };
   } else {
     try {
-      const clientSecret = decryptSecret(sr.clientSecret, secretKey, CLIENT_SECRET_FIELD);
+      const clientSecret = decryptSecret(sr.clientSecret, keyring, CLIENT_SECRET_FIELD);
       sevenRooms = new SevenRoomsClient({ clientId: sr.clientId, clientSecret, venueId: sr.venueId });
       sevenRoomsMode = { live: true, value: 'Live', detail: 'Writing reservations to SevenRooms' };
     } catch (err) {

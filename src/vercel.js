@@ -2,7 +2,7 @@ import { route } from './routes.js';
 import { passwordFromHeader, safeEqual } from './auth.js';
 import { ConfigError, createLiveApp } from './live.js';
 import { londonNow } from './clock.js';
-import { secretKeyFromEnv } from './secrets.js';
+import { loadKeyring, saveKeyring, pruneKeyring } from './secrets.js';
 import {
   SettingsStore, Sessions, isConfigured, ensureSetupCode, completeSetup, applySettingsChange, publicSettings,
   verifyPassword, loginAllowed, recordLoginFailure, userError,
@@ -11,8 +11,7 @@ import {
 const RECONCILE_MIN_GAP_MS = 10 * 60 * 1000;
 
 // Vercel function handler for every /api route. All settings come from the
-// app's own storage. The one exception is TABLE_RUNNER_SECRET_KEY, which
-// encrypts the SevenRooms client secret and must not sit in the same database.
+// app's own storage; nothing is configured through environment variables.
 //
 //   /api/health, /api/setup-status   open; report only whether set up
 //   /api/setup                       one time, needs the code from the logs
@@ -21,7 +20,7 @@ const RECONCILE_MIN_GAP_MS = 10 * 60 * 1000;
 //   /api/inbound-email               email webhook, ?key= from Settings
 //   /api/settings                    admin session only
 //   everything else                  team or admin session
-export function createHandler({ getRedis, clock = () => londonNow(), log = console.log, secretKey = secretKeyFromEnv(process.env) }) {
+export function createHandler({ getRedis, clock = () => londonNow(), log = console.log }) {
   return async function handler(req, res) {
     try {
       const url = new URL(req.url, 'http://localhost');
@@ -53,7 +52,7 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
 
       if (path === '/api/setup' && method === 'POST') {
         settings = await completeSetup(redis, await readBody(req));
-        const app = createLiveApp({ redis, settings, clock, secretKey });
+        const app = createLiveApp({ redis, settings, clock, keyring: await loadKeyring(redis) });
         await app.activity.add('settings', 'Table Runner set up');
         return send(res, 200, { token: await sessions.create('admin', settings.sessionEpoch), role: 'admin' });
       }
@@ -73,7 +72,8 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
         return send(res, 200, { token: await sessions.create(role, settings.sessionEpoch), role });
       }
 
-      const app = createLiveApp({ redis, settings, clock, secretKey });
+      const keyring = await loadKeyring(redis);
+      const app = createLiveApp({ redis, settings, clock, keyring });
 
       if (path.startsWith('/api/cron/')) {
         // No secret needed: both jobs only act on what is already due and
@@ -101,12 +101,21 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
       if (path === '/api/settings') {
         if (role !== 'admin') return send(res, 403, { error: 'Only an admin can view or change settings.' });
         const origin = `${req.headers['x-forwarded-proto'] ?? 'https'}://${req.headers['x-forwarded-host'] ?? req.headers.host}`;
-        if (method === 'GET') return send(res, 200, publicSettings(settings, origin, { secretKey }));
+        if (method === 'GET') return send(res, 200, publicSettings(settings, origin, { keyring }));
         if (method === 'PUT') {
-          const { settings: next, changed } = await applySettingsChange(settings, await readBody(req), { secretKey });
-          await store.save(next);
+          const { settings: next, changed, keyring: nextKeyring } = await applySettingsChange(settings, await readBody(req), { keyring });
+          if (nextKeyring === keyring) {
+            await store.save(next);
+          } else {
+            // Rotation: store the new key alongside the old, then the
+            // re-encrypted settings, then drop the old key. The secret stays
+            // readable if this stops part way.
+            await saveKeyring(redis, nextKeyring);
+            await store.save(next);
+            await saveKeyring(redis, pruneKeyring(nextKeyring));
+          }
           if (changed.length) await app.activity.add('settings', `Settings changed: ${changed.join(', ')}`);
-          const body = { ...publicSettings(next, origin, { secretKey }), changed };
+          const body = { ...publicSettings(next, origin, { keyring: pruneKeyring(nextKeyring) }), changed };
           // A password change signs everyone out; keep this admin signed in.
           if (next.sessionEpoch !== settings.sessionEpoch) body.token = await sessions.create('admin', next.sessionEpoch);
           return send(res, 200, body);

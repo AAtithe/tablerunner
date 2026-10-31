@@ -31,7 +31,7 @@ a morning reconciliation catches anything the sync missed.
 | `src/adapters/redis.js` | Redis storage, shadow SevenRooms and the cross-instance booking lock; Upstash REST client |
 | `src/adapters/redis-tcp.js` | Direct Redis connection from `REDIS_URL` |
 | `src/settings.js` | In-app settings, first-run setup, password hashing, sessions, floor plan validation |
-| `src/secrets.js` | Encryption of stored secrets that must be read back, such as the SevenRooms client secret |
+| `src/secrets.js` | Encryption of stored secrets that must be read back, such as the SevenRooms client secret; the app's own keyring and key rotation |
 | `src/live.js`, `src/vercel.js`, `api/index.js` | Live service on Vercel: wiring from saved settings, authenticated API |
 | `scripts/build-static.js` | Builds `dist/index.html` (live dashboard) and `dist/demo/index.html` (browser-only demo) |
 
@@ -64,10 +64,9 @@ database through its `REDIS_URL`. The dashboard is at `/` and the browser-only d
 
 All settings live in the app, on the admin Settings screen: passwords, the
 email webhook key, the alert channel, SevenRooms details and the floor plan.
-The database connection is the only setting outside the app, and Vercel
-creates it when a Redis database is connected. The one exception is the key
-that encrypts the SevenRooms client secret, which must not sit in the same
-database. It is needed only once SevenRooms credentials arrive.
+There are no environment variables to set. The only connection outside the app
+is the one to the database that holds those settings, and Vercel creates it
+when a Redis database is connected.
 
 Setup, once:
 
@@ -81,12 +80,6 @@ Setup, once:
 4. Optionally add a Slack or Teams incoming webhook for alerts.
 5. Paste the venue's real floor plan and allocation, and set `"example"` to
    `false`.
-6. Before entering SevenRooms credentials, add `TABLE_RUNNER_SECRET_KEY` in
-   Vercel (Settings, Environment Variables, Production, marked Sensitive): a
-   random value of at least 32 characters, for example from
-   `openssl rand -base64 48`. Redeploy. Settings refuses the client secret
-   until it is set. Keep a copy of the key in the firm's password manager:
-   if the key is lost or changed, the client secret has to be entered again.
 
 Until SevenRooms is switched to live, the service runs in shadow mode: every
 OpenTable email is processed and shown with the table it would take, but
@@ -99,11 +92,17 @@ Access:
 - Sessions last 12 hours. Changing a password signs everyone else out.
 - Ten failed sign-ins from one address lock it out for 15 minutes.
 - Passwords are stored only as scrypt hashes.
-- The SevenRooms client secret is stored encrypted (AES-256-GCM) under
-  `TABLE_RUNNER_SECRET_KEY`, which lives in Vercel, not in Redis. It is never
-  sent back to the browser or written to the activity log. If it cannot be
-  read while SevenRooms is live, every booking raises `sync_failed` instead of
-  the service quietly falling back to shadow mode.
+- The SevenRooms client secret is stored encrypted (AES-256-GCM). The app
+  creates the key itself and keeps it in Redis apart from the settings; the
+  "New encryption key" button on the Settings screen replaces it and
+  re-encrypts the secret. The secret is never sent back to the browser or
+  written to the activity log. Because the key is in the same database,
+  anyone with full read access to Redis can recover the secret: keep Redis
+  access to the Vercel team, and ask SevenRooms to revoke and reissue the
+  credentials if the database is ever exposed.
+- If the client secret cannot be read while SevenRooms is live, every booking
+  raises `sync_failed` instead of the service quietly falling back to shadow
+  mode.
 - The email webhook accepts only requests carrying the key from Settings.
 - Scheduled jobs (`vercel.json`, UTC): releases at 5 minutes past every hour,
   reconciliation at 06:30. They need no secret because both only act on what

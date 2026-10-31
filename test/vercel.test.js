@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { FakeRedis } from './fake-redis.js';
 import { createHandler } from '../src/vercel.js';
 import { redisFromEnv } from '../src/live.js';
-import { secretKeyFromEnv } from '../src/secrets.js';
 
 const clock = () => '2026-11-04T10:00';
 const TEAM = 'team-password-1';
@@ -17,12 +16,10 @@ function res() {
   return r;
 }
 
-const SECRET_KEY = secretKeyFromEnv({ TABLE_RUNNER_SECRET_KEY: 'test-key-'.padEnd(40, 'k') });
-
-function harness({ secretKey = SECRET_KEY } = {}) {
+function harness() {
   const redis = new FakeRedis();
   const logs = [];
-  const h = createHandler({ getRedis: () => redis, clock, log: (m) => logs.push(m), secretKey });
+  const h = createHandler({ getRedis: () => redis, clock, log: (m) => logs.push(m) });
   const call = async (method, url, { body, token, headers = {} } = {}) => {
     const r = res();
     await h({ method, url, body, headers: { host: 'tr.example', ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers } }, r);
@@ -189,12 +186,20 @@ test('storage lookup picks REST, then a direct connection, and explains failures
   assert.throws(() => redisFromEnv({ PATH: '/bin' }), /No storage settings were found/);
 });
 
-test('without the encryption key the client secret is refused, not stored in plain text', async () => {
-  const { call, setUp, redis } = harness({ secretKey: null });
+test('the client secret survives a key rotation and the old key is deleted', async () => {
+  const { call, setUp, redis } = harness();
   const token = await setUp();
-  assert.equal((await call('GET', '/api/settings', { token })).json().sevenRooms.secretKeySet, false);
-  const r = await call('PUT', '/api/settings', { token, body: { sevenRooms: { clientSecret: 's3cret' } } });
-  assert.equal(r.statusCode, 400);
-  assert.match(r.json().error, /TABLE_RUNNER_SECRET_KEY/);
-  assert.equal(JSON.stringify([...redis.data.values()].map(String)).includes('s3cret'), false);
+  await call('PUT', '/api/settings', { token, body: { sevenRooms: { clientSecret: 's3cret' } } });
+  const before = JSON.parse(await redis.cmd('GET', 'tr:keyring'));
+
+  const r = await call('PUT', '/api/settings', { token, body: { rotateEncryptionKey: true } });
+  assert.equal(r.statusCode, 200, r.body);
+  assert.deepEqual(r.json().changed, ['encryption key']);
+  assert.equal(r.json().sevenRooms.clientSecretProblem, null);
+
+  const after = JSON.parse(await redis.cmd('GET', 'tr:keyring'));
+  assert.notEqual(after.current, before.current);
+  assert.deepEqual(Object.keys(after.keys), [after.current], 'old key deleted');
+  const stored = JSON.parse(await redis.cmd('GET', 'tr:settings')).sevenRooms.clientSecret;
+  assert.equal(stored.split('.')[1], after.current, 're-encrypted under the new key');
 });

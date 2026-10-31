@@ -2,13 +2,14 @@ import { scrypt, randomBytes, createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { safeEqual } from './auth.js';
 import { SevenRoomsClient } from './adapters/sevenrooms.js';
-import { SECRET_KEY_VAR, SECRET_KEY_MIN_LENGTH, encryptSecret, secretProblem } from './secrets.js';
+import { addKey, currentKeyInfo, decryptSecret, encryptSecret, secretProblem } from './secrets.js';
 import { exampleConfig } from '../config/allocation.example.js';
 
 // Everything that would otherwise be an environment variable lives here, in
 // Redis, and is edited on the dashboard's Settings screen by an admin.
 // Passwords are stored only as scrypt hashes. The SevenRooms client secret
-// must be read back, so it is encrypted instead (see secrets.js).
+// must be read back, so it is encrypted instead, under a key the app keeps
+// apart from the settings (see secrets.js).
 
 const scryptAsync = promisify(scrypt);
 const SETTINGS_KEY = 'tr:settings';
@@ -84,13 +85,25 @@ export async function completeSetup(redis, { code, teamPassword, adminPassword }
   return settings;
 }
 
-// Applies an admin's changes. Returns the new settings and the names of the
-// fields that changed (never their values), for the activity log.
-// `secretKey` comes from secretKeyFromEnv; without it no client secret can be saved.
-export async function applySettingsChange(current, patch, { secretKey = null } = {}) {
+// Applies an admin's changes. Returns the new settings, the names of the
+// fields that changed (never their values) for the activity log, and the
+// keyring, which is new if the encryption key was rotated.
+export async function applySettingsChange(current, patch, { keyring, now = () => new Date().toISOString() }) {
   const next = structuredClone(current);
   const changed = [];
   const errors = [];
+
+  if (patch.rotateEncryptionKey) {
+    const stored = current.sevenRooms?.clientSecret;
+    const rotated = addKey(keyring, now());
+    // A secret that cannot be read now cannot be re-encrypted; it stays as it
+    // is and still has to be entered again.
+    if (stored && !secretProblem(stored, keyring, CLIENT_SECRET_FIELD)) {
+      next.sevenRooms = { ...next.sevenRooms, clientSecret: encryptSecret(decryptSecret(stored, keyring, CLIENT_SECRET_FIELD), rotated, CLIENT_SECRET_FIELD) };
+    }
+    keyring = rotated;
+    changed.push('encryption key');
+  }
 
   if (patch.teamPassword || patch.adminPassword) {
     const team = patch.teamPassword || null;
@@ -121,7 +134,7 @@ export async function applySettingsChange(current, patch, { secretKey = null } =
   }
 
   if (patch.sevenRooms) {
-    const sr = { ...current.sevenRooms };
+    const sr = { ...next.sevenRooms };
     for (const field of ['clientId', 'venueId']) {
       if (patch.sevenRooms[field] !== undefined && patch.sevenRooms[field] !== sr[field]) {
         sr[field] = String(patch.sevenRooms[field]).trim();
@@ -129,12 +142,8 @@ export async function applySettingsChange(current, patch, { secretKey = null } =
       }
     }
     if (patch.sevenRooms.clientSecret) {
-      if (!secretKey) {
-        errors.push(`The SevenRooms client secret cannot be saved until ${SECRET_KEY_VAR} is set in Vercel: a random value of at least ${SECRET_KEY_MIN_LENGTH} characters, then redeploy.`);
-      } else {
-        sr.clientSecret = encryptSecret(String(patch.sevenRooms.clientSecret).trim(), secretKey, CLIENT_SECRET_FIELD);
-        changed.push('SevenRooms client secret');
-      }
+      sr.clientSecret = encryptSecret(String(patch.sevenRooms.clientSecret).trim(), keyring, CLIENT_SECRET_FIELD);
+      changed.push('SevenRooms client secret');
     }
     if (patch.sevenRooms.mode && patch.sevenRooms.mode !== sr.mode) {
       if (!['shadow', 'live'].includes(patch.sevenRooms.mode)) errors.push('SevenRooms mode must be shadow or live.');
@@ -142,8 +151,8 @@ export async function applySettingsChange(current, patch, { secretKey = null } =
         errors.push('SevenRooms cannot be switched to live yet: the live connection is still being built. Keep shadow mode.');
       } else if (patch.sevenRooms.mode === 'live' && !(sr.clientId && sr.clientSecret && sr.venueId)) {
         errors.push('Enter the SevenRooms client ID, client secret and venue ID before switching to live.');
-      } else if (patch.sevenRooms.mode === 'live' && secretProblem(sr.clientSecret, secretKey, CLIENT_SECRET_FIELD)) {
-        errors.push(`SevenRooms cannot be switched to live: the client secret is saved but ${secretProblem(sr.clientSecret, secretKey, CLIENT_SECRET_FIELD)}.`);
+      } else if (patch.sevenRooms.mode === 'live' && secretProblem(sr.clientSecret, keyring, CLIENT_SECRET_FIELD)) {
+        errors.push(`SevenRooms cannot be switched to live: the client secret is saved but ${secretProblem(sr.clientSecret, keyring, CLIENT_SECRET_FIELD)}.`);
       } else {
         sr.mode = patch.sevenRooms.mode;
         changed.push('SevenRooms mode');
@@ -162,11 +171,11 @@ export async function applySettingsChange(current, patch, { secretKey = null } =
   }
 
   if (errors.length) throw userError(400, errors.join(' '));
-  return { settings: next, changed };
+  return { settings: next, changed, keyring };
 }
 
 // What the Settings screen may see: no hashes, no stored secrets.
-export function publicSettings(s, origin, { secretKey = null } = {}) {
+export function publicSettings(s, origin, { keyring }) {
   return {
     inboundUrl: s.inboundSecret ? `${origin}/api/inbound-email?key=${s.inboundSecret}` : '',
     alertWebhookUrl: s.alertWebhookUrl ?? '',
@@ -175,8 +184,8 @@ export function publicSettings(s, origin, { secretKey = null } = {}) {
       clientId: s.sevenRooms?.clientId ?? '',
       venueId: s.sevenRooms?.venueId ?? '',
       clientSecretSet: Boolean(s.sevenRooms?.clientSecret),
-      clientSecretProblem: secretProblem(s.sevenRooms?.clientSecret, secretKey, CLIENT_SECRET_FIELD),
-      secretKeySet: Boolean(secretKey),
+      clientSecretProblem: secretProblem(s.sevenRooms?.clientSecret, keyring, CLIENT_SECRET_FIELD),
+      encryptionKeyCreated: currentKeyInfo(keyring).created,
       liveAvailable: SevenRoomsClient.implemented,
     },
     floorPlan: s.floorPlan ?? exampleConfig,

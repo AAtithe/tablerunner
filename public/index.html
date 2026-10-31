@@ -173,6 +173,7 @@
         <label for="s-client-secret">Client secret</label>
         <input id="s-client-secret" type="password" autocomplete="new-password">
         <div class="hint" id="s-secret-hint"></div>
+        <div class="toolbar"><button type="button" id="s-rotate-key">New encryption key</button></div>
         <label for="s-venue-id">Venue ID</label>
         <input id="s-venue-id" autocomplete="off">
       </fieldset>
@@ -413,12 +414,10 @@ function fillSettings(s) {
   $('s-venue-id').value = s.sevenRooms.venueId;
   $('s-client-secret').value = '';
   $('s-client-secret').placeholder = s.sevenRooms.clientSecretSet ? 'Saved. Type a new one to replace it.' : '';
-  $('s-client-secret').disabled = !s.sevenRooms.secretKeySet;
-  $('s-secret-hint').textContent = !s.sevenRooms.secretKeySet
-    ? 'Stored encrypted. Before it can be saved, add TABLE_RUNNER_SECRET_KEY in Vercel (a random value of at least 32 characters, marked Sensitive) and redeploy.'
-    : s.sevenRooms.clientSecretProblem
-      ? `The saved client secret cannot be used: ${s.sevenRooms.clientSecretProblem}.`
-      : 'Stored encrypted. It is never shown again.';
+  const keyDate = s.sevenRooms.encryptionKeyCreated ? s.sevenRooms.encryptionKeyCreated.slice(0, 10) : 'unknown';
+  $('s-secret-hint').textContent = s.sevenRooms.clientSecretProblem
+    ? `The saved client secret cannot be used: ${s.sevenRooms.clientSecretProblem}.`
+    : `Stored encrypted and never shown again. Encryption key created ${keyDate}.`;
   $('s-team').value = ''; $('s-admin').value = '';
   loadedFloor = JSON.stringify(s.floorPlan, null, 2);
   $('s-floor').value = loadedFloor;
@@ -487,6 +486,21 @@ $('s-regenerate').onclick = async () => {
   $('s-regenerate').textContent = 'New key';
   const r = await saveSettings({ regenerateInboundSecret: true });
   if (r) msg('New key created. Paste the new address into Postmark now.', true);
+};
+
+let rotateArmed = false;
+$('s-rotate-key').onclick = async () => {
+  if (!rotateArmed) {
+    rotateArmed = true;
+    $('s-rotate-key').textContent = 'Confirm new encryption key';
+    msg('The client secret will be re-encrypted under a new key and the old key deleted. Click again to confirm.', false);
+    setTimeout(() => { rotateArmed = false; $('s-rotate-key').textContent = 'New encryption key'; }, 8000);
+    return;
+  }
+  rotateArmed = false;
+  $('s-rotate-key').textContent = 'New encryption key';
+  const r = await saveSettings({ rotateEncryptionKey: true });
+  if (r) msg('New encryption key created. The client secret was re-encrypted under it.', true);
 };
 
 async function refresh(fromLogin) {
