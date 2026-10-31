@@ -20,7 +20,16 @@ Example: on Friday late we keep two tables in reserve. A late OpenTable booking 
 
 ## Before you start
 
-Sign in to Table Runner with the team password. Your manager gives you the address. You stay signed in for 12 hours. After ten wrong passwords the device is locked out for 15 minutes.
+You sign in with your own account: your email address and a password only you know. Never share it, and never use someone else's.
+
+- Getting in the first time: your manager or admin adds you, and you get an invite email. Open the link and choose your password. The link works once and lasts 7 days; if it has expired, ask for a new one.
+- Signing in: email and password. You stay signed in for 12 hours. On a shared device at the host stand, sign out at the end of your shift.
+- Forgotten your password: press Forgotten your password? on the sign-in screen. The reset link lasts 1 hour. If nothing arrives, ask your admin.
+- Locked out: ten wrong attempts from one device lock sign-in there for 15 minutes.
+- Changing your password: under My account.
+- More than one site: choose Broadcaster in the site selector at the top.
+
+Hosts need a manager account. A viewer account sees everything but cannot acknowledge alerts, mark tables closed or run releases. If Table Runner says your account can view this site but not change anything, ask your admin to change your role.
 
 The screen has five parts, top to bottom:
 
@@ -111,10 +120,11 @@ Before you leave, tick these off. The next host should never inherit a problem t
 - [ ] Open in OpenTable is zero for today and tomorrow, or the incoming host knows which sittings are still open
 - [ ] Any booking seated or entered by hand today is noted for your manager
 - [ ] The incoming host knows they now own alerts
+- [ ] Signed out, if you used a shared device
 
 ## Weekly: coaching review with your manager
 
-Fifteen minutes, once a week, with the Coaching section open. It measures the team, not individuals, because everyone shares one login. The point is to get a little better every week, not to find someone to blame.
+Fifteen minutes, once a week, with the Coaching section open. It measures the team, not individuals: Table Runner records when an alert is answered or a table is closed, not who did it. The point is to get a little better every week, not to find someone to blame.
 
 The habits we track, and the targets:
 
