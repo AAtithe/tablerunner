@@ -18,6 +18,8 @@ export class FakeRedis {
       case 'EXPIRE': return d.has(args[0]) ? 1 : 0;
       case 'HGET': return d.get(args[0])?.get(String(args[1])) ?? null;
       case 'HSET': hash(args[0]).set(String(args[1]), args[2]); return 1;
+      case 'HSETNX': if (hash(args[0]).has(String(args[1]))) return 0; hash(args[0]).set(String(args[1]), args[2]); return 1;
+      case 'HGETALL': return [...(d.get(args[0])?.entries() ?? [])].flat();
       case 'HVALS': return [...(d.get(args[0])?.values() ?? [])];
       case 'SADD': (d.has(args[0]) ? d.get(args[0]) : d.set(args[0], new Set()).get(args[0])).add(args[1]); return 1;
       case 'SMEMBERS': return [...(d.get(args[0]) ?? [])];

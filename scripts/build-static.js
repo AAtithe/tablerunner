@@ -20,6 +20,7 @@ const MODULES = [
   'src/activity.js',
   'src/reconcile.js',
   'src/release.js',
+  'src/coaching.js',
   'src/sync.js',
   'src/app.js',
   'src/routes.js',

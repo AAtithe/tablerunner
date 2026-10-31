@@ -16,10 +16,10 @@ function res() {
   return r;
 }
 
-function harness() {
+function harness({ fetchImpl } = {}) {
   const redis = new FakeRedis();
   const logs = [];
-  const h = createHandler({ getRedis: () => redis, clock, log: (m) => logs.push(m) });
+  const h = createHandler({ getRedis: () => redis, clock, log: (m) => logs.push(m), fetchImpl });
   const call = async (method, url, { body, token, headers = {} } = {}) => {
     const r = res();
     await h({ method, url, body, headers: { host: 'tr.example', ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers } }, r);
@@ -202,4 +202,74 @@ test('the client secret survives a key rotation and the old key is deleted', asy
   assert.deepEqual(Object.keys(after.keys), [after.current], 'old key deleted');
   const stored = JSON.parse(await redis.cmd('GET', 'tr:settings')).sevenRooms.clientSecret;
   assert.equal(stored.split('.')[1], after.current, 're-encrypted under the new key');
+});
+
+// Simulated Postmark Server API plus our own public health check.
+function fakePostmark({ token = 'pm-token', protectedSite = false } = {}) {
+  const server = { Name: 'Broadcaster inbound', InboundAddress: 'abc123@inbound.postmarkapp.com', InboundHookUrl: '' };
+  const calls = [];
+  const state = { revoked: false };
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url, method: init.method ?? 'GET', body: init.body });
+    if (url.endsWith('/api/health')) return { status: protectedSite ? 302 : 200, ok: !protectedSite };
+    if (state.revoked || init.headers['x-postmark-server-token'] !== token) return { status: 401, ok: false, json: async () => ({}) };
+    if ((init.method ?? 'GET') === 'PUT') Object.assign(server, JSON.parse(init.body));
+    return { status: 200, ok: true, json: async () => ({ ...server }) };
+  };
+  return { fetchImpl, calls, server, state };
+}
+
+test('connecting Postmark points its webhook here and shows the forwarding address', async () => {
+  const pm = fakePostmark();
+  const { call, setUp } = harness({ fetchImpl: pm.fetchImpl });
+  const token = await setUp();
+
+  const bad = await call('PUT', '/api/settings', { token, body: { postmarkServerToken: 'wrong' } });
+  assert.equal(bad.statusCode, 400);
+  assert.match(bad.json().error, /did not accept that token/);
+  assert.equal((await call('GET', '/api/settings', { token })).json().postmark.connected, false);
+
+  const ok = await call('PUT', '/api/settings', { token, body: { postmarkServerToken: 'pm-token' } });
+  assert.equal(ok.statusCode, 200, ok.body);
+  const s = ok.json();
+  assert.deepEqual(s.changed, ['Postmark connected']);
+  assert.equal(s.postmark.inboundAddress, 'abc123@inbound.postmarkapp.com');
+  assert.equal(s.postmark.pointsHere, true);
+  assert.equal(pm.server.InboundHookUrl, s.inboundUrl);
+  assert.equal(JSON.stringify(s).includes('pm-token'), false);
+
+  // Regenerating the key re-points Postmark, so emails keep flowing.
+  const regen = (await call('PUT', '/api/settings', { token, body: { regenerateInboundSecret: true } })).json();
+  assert.deepEqual(regen.changed, ['email webhook key', 'Postmark webhook updated']);
+  assert.equal(pm.server.InboundHookUrl, regen.inboundUrl);
+  assert.notEqual(regen.inboundUrl, s.inboundUrl);
+
+  const off = (await call('PUT', '/api/settings', { token, body: { disconnectPostmark: true } })).json();
+  assert.equal(off.postmark.connected, false);
+});
+
+test('Postmark is refused from an address behind the Vercel login, and nothing changes', async () => {
+  const pm = fakePostmark({ protectedSite: true });
+  const { call, setUp } = harness({ fetchImpl: pm.fetchImpl });
+  const token = await setUp();
+  const before = (await call('GET', '/api/settings', { token })).json().inboundUrl;
+  const r = await call('PUT', '/api/settings', { token, body: { postmarkServerToken: 'pm-token' } });
+  assert.equal(r.statusCode, 400);
+  assert.match(r.json().error, /behind Vercel's login/);
+  assert.equal(pm.calls.some((c) => c.url.includes('postmarkapp')), false);
+  assert.equal((await call('GET', '/api/settings', { token })).json().inboundUrl, before);
+});
+
+test('if Postmark fails during a key change, the old key stays in force', async () => {
+  const pm = fakePostmark();
+  const { call, setUp } = harness({ fetchImpl: pm.fetchImpl });
+  const token = await setUp();
+  await call('PUT', '/api/settings', { token, body: { postmarkServerToken: 'pm-token' } });
+  const before = (await call('GET', '/api/settings', { token })).json().inboundUrl;
+
+  pm.state.revoked = true;
+  const r = await call('PUT', '/api/settings', { token, body: { regenerateInboundSecret: true } });
+  assert.equal(r.statusCode, 400);
+  assert.equal((await call('GET', '/api/settings', { token })).json().inboundUrl, before);
+  assert.equal(pm.server.InboundHookUrl, before);
 });

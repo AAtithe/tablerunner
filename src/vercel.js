@@ -5,8 +5,9 @@ import { londonNow } from './clock.js';
 import { loadKeyring, saveKeyring, pruneKeyring } from './secrets.js';
 import {
   SettingsStore, Sessions, isConfigured, ensureSetupCode, completeSetup, applySettingsChange, publicSettings,
-  verifyPassword, loginAllowed, recordLoginFailure, userError,
+  verifyPassword, loginAllowed, recordLoginFailure, userError, inboundUrlFor, withStartingHoldBack,
 } from './settings.js';
+import { connectPostmark, assertPublic } from './postmark.js';
 
 const RECONCILE_MIN_GAP_MS = 10 * 60 * 1000;
 
@@ -20,7 +21,7 @@ const RECONCILE_MIN_GAP_MS = 10 * 60 * 1000;
 //   /api/inbound-email               email webhook, ?key= from Settings
 //   /api/settings                    admin session only
 //   everything else                  team or admin session
-export function createHandler({ getRedis, clock = () => londonNow(), log = console.log }) {
+export function createHandler({ getRedis, clock = () => londonNow(), log = console.log, fetchImpl = fetch }) {
   return async function handler(req, res) {
     try {
       const url = new URL(req.url, 'http://localhost');
@@ -72,8 +73,16 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
         return send(res, 200, { token: await sessions.create(role, settings.sessionEpoch), role });
       }
 
+      const migrated = withStartingHoldBack(settings);
+      if (migrated) {
+        await store.save(migrated);
+        settings = migrated;
+      }
       const keyring = await loadKeyring(redis);
       const app = createLiveApp({ redis, settings, clock, keyring });
+      if (migrated) {
+        await app.activity.add('settings', `Settings changed: OpenTable reserve set to the starting figures ${JSON.stringify(migrated.floorPlan.release.holdBack)}`);
+      }
 
       if (path.startsWith('/api/cron/')) {
         // No secret needed: both jobs only act on what is already due and
@@ -103,7 +112,9 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
         const origin = `${req.headers['x-forwarded-proto'] ?? 'https'}://${req.headers['x-forwarded-host'] ?? req.headers.host}`;
         if (method === 'GET') return send(res, 200, publicSettings(settings, origin, { keyring }));
         if (method === 'PUT') {
-          const { settings: next, changed, keyring: nextKeyring } = await applySettingsChange(settings, await readBody(req), { keyring });
+          const patch = await readBody(req);
+          const { settings: next, changed, keyring: nextKeyring } = await applySettingsChange(settings, patch, { keyring });
+          await applyPostmark({ patch, prev: settings, next, changed, origin, clock, fetchImpl });
           if (nextKeyring === keyring) {
             await store.save(next);
           } else {
@@ -131,6 +142,27 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
       return send(res, err.status ?? 500, { error: err.status ? err.message : 'Internal error. Check the Vercel function logs.' });
     }
   };
+}
+
+// Connects Postmark when a token is given, and keeps it pointed at the
+// current webhook key when the key is regenerated. Runs before anything is
+// saved, so a Postmark failure leaves the settings unchanged.
+async function applyPostmark({ patch, prev, next, changed, origin, clock, fetchImpl }) {
+  if (patch.disconnectPostmark && next.postmark) {
+    delete next.postmark;
+    changed.push('Postmark disconnected');
+    return;
+  }
+  const newToken = typeof patch.postmarkServerToken === 'string' ? patch.postmarkServerToken.trim() : '';
+  const keyChanged = next.inboundSecret !== prev.inboundSecret;
+  const token = newToken || (keyChanged ? next.postmark?.serverToken : '');
+  if (!token) return;
+
+  const hookUrl = inboundUrlFor(next, origin);
+  await assertPublic(origin, fetchImpl);
+  const server = await connectPostmark({ token, hookUrl, fetchImpl });
+  next.postmark = { serverToken: token, ...server, hookUrl, connectedAt: clock() };
+  changed.push(newToken ? 'Postmark connected' : 'Postmark webhook updated');
 }
 
 // At most one reconciliation per ten minutes, across all instances.

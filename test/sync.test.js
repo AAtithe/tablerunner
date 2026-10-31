@@ -11,12 +11,15 @@ import { handleInboundEmail } from '../src/index.js';
 
 import { exampleConfig as config } from '../config/allocation.example.js';
 const FRI = '2026-11-06';
+// The example holds one table back per sitting; these tests check release
+// mechanics with no reserve. test/exposure.test.js covers the reserve.
+const noReserve = { ...config, release: { ...config.release, holdBack: 0 } };
 
-function setup() {
+function setup(cfg = config) {
   const store = new MemoryStore();
   const sevenRooms = new MemorySevenRooms();
   const alert = new MemoryAlerts();
-  const sync = new SyncService({ config, store, sevenRooms, alert });
+  const sync = new SyncService({ config: cfg, store, sevenRooms, alert });
   return { store, sevenRooms, alert, sync };
 }
 
@@ -110,9 +113,9 @@ test('reconciliation finds missing, mismatched and orphaned bookings', () => {
 });
 
 test('releases only unsold tables, only after release time, only once', async () => {
-  const { sync, store, sevenRooms, alert } = setup();
+  const { sync, store, sevenRooms, alert } = setup(noReserve);
   await sync.handle(booking());
-  const args = { config, store, sevenRooms, alert, fromDate: FRI, toDate: FRI };
+  const args = { config: noReserve, store, sevenRooms, alert, fromDate: FRI, toDate: FRI };
 
   assert.equal((await runReleases({ ...args, now: '2026-11-04T15:59' })).length, 0);
   const due = await runReleases({ ...args, now: '2026-11-04T16:00' });
@@ -129,22 +132,22 @@ test('manual release mode sends the host a checklist', async () => {
   assert.equal(sevenRooms.releases.length, 0);
 });
 
-test('release always closes the table on OpenTable too', async () => {
-  const { store, sevenRooms, alert } = setup();
-  const args = { config, store, sevenRooms, alert, now: '2026-11-05T09:00', fromDate: FRI, toDate: FRI };
+test('release closes the table on OpenTable when an adapter can, otherwise tells the host', async () => {
+  const { store, sevenRooms, alert } = setup(noReserve);
+  const args = { config: noReserve, store, sevenRooms, alert, now: '2026-11-05T09:00', fromDate: FRI, toDate: FRI };
   await runReleases(args);
   assert.equal(alert.sent.at(-1).code, 'close_in_opentable');
 
   const closed = [];
-  const s2 = setup();
+  const s2 = setup(noReserve);
   await runReleases({ ...args, store: s2.store, alert: s2.alert, openTable: { closeTable: async (t) => closed.push(t) } });
   assert.equal(closed.length, 6);
   assert.equal(s2.alert.sent.length, 0);
 });
 
 test('a booking arriving after release never lands on a released table', async () => {
-  const { sync, store, sevenRooms, alert } = setup();
-  await runReleases({ config, store, sevenRooms, alert, now: '2026-11-05T09:00', fromDate: FRI, toDate: FRI });
+  const { sync, store, sevenRooms, alert } = setup(noReserve);
+  await runReleases({ config: noReserve, store, sevenRooms, alert, now: '2026-11-05T09:00', fromDate: FRI, toDate: FRI });
   const r = await sync.handle(booking());
   assert.equal(r.action, 'rejected');
   assert.equal(sevenRooms.reservations.size, 0);

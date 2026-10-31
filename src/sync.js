@@ -1,10 +1,11 @@
-import { assignTable } from './allocation.js';
+import { assignTable, exposureFor, releaseAt } from './allocation.js';
 
 // Applies one OpenTable event (created, modified, cancelled) to SevenRooms.
 // Safe to replay: the same event twice produces one reservation.
 export class SyncService {
-  constructor({ config, store, sevenRooms, alert }) {
+  constructor({ config, store, sevenRooms, alert, clock = null }) {
     this.config = config;
+    this.clock = clock;
     this.store = store;
     this.sevenRooms = sevenRooms;
     this.alert = alert;
@@ -41,20 +42,27 @@ export class SyncService {
 
     const moving = existing?.status === 'active';
     const sitting = sittingKey(this.config, event);
-    const taken = await this.store.takenTables(event.date, sitting);
-    if (moving && existing.date === event.date) taken.delete(existing.table);
+    const booked = await this.store.takenTables(event.date, sitting);
+    if (moving && existing.date === event.date) booked.delete(existing.table);
     // A released table belongs to SevenRooms again and may already be resold.
     const prefix = `${event.date}|${sitting}|`;
-    for (const key of await this.store.releasedKeys()) {
+    const released = await this.store.releasedKeys();
+    const taken = new Set(booked);
+    for (const key of released) {
       if (key.startsWith(prefix)) taken.add(key.slice(prefix.length));
     }
 
     const placement = assignTable(this.config, event, taken);
     if (!placement.ok) {
+      const exposure = sitting && exposureFor(this.config, {
+        date: event.date, sitting, taken: booked, released, closed: await this.closedKeys(),
+      });
+      const oversold = exposure?.exposed.length > 0;
       await this.alert.send({
         severity: 'high',
         code: placement.reason,
-        message: `OpenTable ${event.confirmation}: party of ${event.partySize} on ${event.date} at ${event.time} has no protected table (${placement.reason}). Seat manually and review the OpenTable allocation.`,
+        message: `OpenTable ${event.confirmation}: party of ${event.partySize} on ${event.date} at ${event.time} has no protected table (${placement.reason}). Seat manually and review the OpenTable allocation.`
+          + (oversold ? ` OpenTable sold this after release with ${exposure.exposed.length} released table(s) still open there (${exposure.exposed.join(', ')}). Check SevenRooms for a clash now and stop online sales for the ${sitting} sitting in OpenTable.` : ''),
         event,
       });
       return { action: 'rejected', reason: placement.reason };
@@ -80,8 +88,45 @@ export class SyncService {
       table: placement.table,
       guest: event.guest,
     };
+    // A booking made after release time draws on the reserve. Recording it
+    // gives the evidence for how large the reserve needs to be.
+    const now = this.clock?.();
+    const lateNow = Boolean(now && now >= releaseAt(this.config, event.date));
+    record.bookedAt = existing?.bookedAt ?? now ?? null;
+    record.late = Boolean(existing?.late) || lateNow;
     await this.store.put(record);
+    if (lateNow) await this.#checkReserve(record, released);
     return { action: moving ? 'updated' : 'created', record };
+  }
+
+  async closedKeys() {
+    return this.store.closedInOpenTableKeys ? this.store.closedInOpenTableKeys() : new Set();
+  }
+
+  // After a late booking: say how much reserve is left while released tables
+  // are still open in OpenTable. With none left, the host must stop online
+  // sales for the sitting before OpenTable sells a table SevenRooms has resold.
+  async #checkReserve(record, released) {
+    const taken = await this.store.takenTables(record.date, record.sitting);
+    const e = exposureFor(this.config, {
+      date: record.date, sitting: record.sitting, taken, released, closed: await this.closedKeys(),
+    });
+    if (e.exposed.length === 0) return;
+    const where = `${record.date} ${record.sitting} sitting`;
+    if (e.atRisk) {
+      await this.alert.send({
+        severity: 'high',
+        code: 'reserve_exhausted',
+        message: `Late OpenTable booking ${record.confirmation} took the last reserve table for ${where}. ${e.exposed.length} released table(s) are still open in OpenTable. Stop online sales for this sitting in OpenTable now, then mark the tables closed in Table Runner.`,
+        tables: e.exposed.map((table) => ({ date: record.date, sitting: record.sitting, table })),
+      });
+    } else {
+      await this.alert.send({
+        severity: 'medium',
+        code: 'reserve_used',
+        message: `Late OpenTable booking ${record.confirmation} placed on reserve table ${record.table} for ${where}. ${e.reserve.length} reserve table(s) left (largest seats ${e.largestReserve}); ${e.exposed.length} released table(s) still open in OpenTable.`,
+      });
+    }
   }
 
   async #cancel(event) {
