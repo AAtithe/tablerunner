@@ -109,6 +109,18 @@
   .pm-box code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; color: var(--ink); }
   details summary { cursor: pointer; }
   .msg.ok { color: var(--ok); } .msg.bad { color: var(--bad); }
+  .admin-table { border-collapse: collapse; width: 100%; min-width: 640px; }
+  .admin-table th, .admin-table td { padding: 8px 6px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .admin-table th { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .admin-table td .toolbar { gap: 6px; }
+  .admin-table button { padding: 3px 9px; font-size: 12px; }
+  .pill { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--idle-soft); color: var(--muted); margin: 0 4px 2px 0; }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); } .pill.warn { background: var(--warn-soft); color: var(--warn); } .pill.bad { background: var(--bad-soft); color: var(--bad); }
+  .site-checks { display: grid; gap: 4px; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+  .site-checks label { color: var(--ink); font-size: 13px; display: flex; gap: 6px; align-items: center; }
+  .site-checks input { width: auto; }
+  #site-select { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; max-width: 220px; }
+  .who-am-i { font-size: 12px; }
   .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--line); }
 </style>
 </head>
@@ -120,9 +132,15 @@
   </div>
   <div class="toolbar">
     <span class="muted" id="clock"></span>
+    <label for="site-select" class="muted" id="site-select-label" hidden>Site</label>
+    <select id="site-select" hidden></select>
     <button id="btn-reconcile">Run reconciliation</button>
     <button id="btn-release">Run releases</button>
+    <button id="btn-sites" hidden>Sites</button>
+    <button id="btn-users" hidden>Users</button>
     <button id="btn-settings" hidden>Settings</button>
+    <button id="btn-account" hidden>My account</button>
+    <span class="muted who-am-i" id="who-am-i"></span>
     <button id="btn-signout" hidden>Sign out</button>
   </div>
 </header>
@@ -141,6 +159,8 @@
   </form>
   <form class="panel login" id="login" hidden>
     <h2 style="margin:0">Sign in</h2>
+    <label for="login-email" class="muted">Email</label>
+    <input type="email" id="login-email" autocomplete="username" placeholder="Leave blank to use a shared password">
     <label for="password" class="muted">Password</label>
     <input type="password" id="password" autocomplete="current-password" required>
     <button class="primary" type="submit">Sign in</button>
@@ -148,7 +168,7 @@
   </form>
   <section class="panel" id="settings" hidden>
     <div class="toolbar" style="justify-content: space-between; margin-bottom: 12px;">
-      <h2 style="margin:0">Settings</h2>
+      <h2 style="margin:0">Settings: <span id="settings-site"></span></h2>
       <button id="settings-close" type="button">Close</button>
     </div>
     <form id="settings-form" class="settings-grid">
@@ -190,7 +210,7 @@
         <input id="s-venue-id" autocomplete="off">
       </fieldset>
       <fieldset>
-        <legend>Passwords</legend>
+        <legend>Shared passwords (every site)</legend>
         <label for="s-team">New team password</label>
         <input id="s-team" type="password" autocomplete="new-password" minlength="10">
         <label for="s-admin">New admin password</label>
@@ -209,6 +229,81 @@
       </div>
     </form>
   </section>
+  <section class="panel" id="sites-panel" hidden>
+    <div class="toolbar" style="justify-content: space-between; margin-bottom: 12px;">
+      <h2 style="margin:0">Sites</h2>
+      <button id="sites-close" type="button">Close</button>
+    </div>
+    <div class="scroll"><table class="admin-table" id="sites-table"></table></div>
+    <form id="site-form" class="settings-grid" style="margin-top:16px">
+      <fieldset>
+        <legend id="site-form-title">Add a site</legend>
+        <label for="site-name">Site name, as staff know it</label>
+        <input id="site-name" required maxlength="80">
+        <label for="site-code">Site code (lower-case letters, digits, hyphens)</label>
+        <input id="site-code" required pattern="[a-z0-9\-]{2,40}" autocomplete="off">
+        <div class="hint">The code keys the site's bookings and cannot change later. A new site starts in shadow mode on the example floor plan: open its Settings to connect Postmark and paste the real floor plan.</div>
+        <div class="toolbar">
+          <button class="primary" type="submit" id="site-submit">Add site</button>
+          <button type="button" id="site-cancel" hidden>Cancel</button>
+        </div>
+        <span class="msg" id="sites-msg" role="status"></span>
+      </fieldset>
+    </form>
+  </section>
+
+  <section class="panel" id="users-panel" hidden>
+    <div class="toolbar" style="justify-content: space-between; margin-bottom: 12px;">
+      <h2 style="margin:0">Users</h2>
+      <button id="users-close" type="button">Close</button>
+    </div>
+    <div class="scroll"><table class="admin-table" id="users-table"></table></div>
+    <form id="user-form" class="settings-grid" style="margin-top:16px">
+      <fieldset class="wide">
+        <legend id="user-form-title">Add a user</legend>
+        <div class="settings-grid">
+          <div style="display:grid;gap:8px"><label for="u-name">Name</label><input id="u-name" required maxlength="80"></div>
+          <div style="display:grid;gap:8px"><label for="u-email">Email (their sign-in)</label><input id="u-email" type="email" required autocomplete="off"></div>
+          <div style="display:grid;gap:8px"><label for="u-role">Role</label><select id="u-role"></select></div>
+          <div style="display:grid;gap:8px"><label for="u-password" id="u-password-label">Password (10 characters or more)</label><input id="u-password" type="password" autocomplete="new-password" minlength="10"></div>
+        </div>
+        <div id="u-sites-wrap">
+          <label>Sites this user may see</label>
+          <div class="site-checks" id="u-sites"></div>
+        </div>
+        <div class="hint" id="u-role-hint"></div>
+        <div class="toolbar">
+          <button class="primary" type="submit" id="user-submit">Add user</button>
+          <button type="button" id="user-cancel" hidden>Cancel</button>
+        </div>
+        <span class="msg" id="users-msg" role="status"></span>
+      </fieldset>
+    </form>
+    <details style="margin-top:16px">
+      <summary><strong>Admin log</strong> <span class="hint">users, sites and settings changes, and who made them</span></summary>
+      <ul class="feed list" id="audit" style="margin-top:8px"></ul>
+    </details>
+  </section>
+
+  <section class="panel" id="account-panel" hidden>
+    <div class="toolbar" style="justify-content: space-between; margin-bottom: 12px;">
+      <h2 style="margin:0">My account</h2>
+      <button id="account-close" type="button">Close</button>
+    </div>
+    <form id="account-form" class="settings-grid">
+      <fieldset>
+        <legend>Change my password</legend>
+        <div class="hint" id="account-who"></div>
+        <label for="a-current">Current password</label>
+        <input id="a-current" type="password" autocomplete="current-password" required>
+        <label for="a-new">New password (10 characters or more)</label>
+        <input id="a-new" type="password" autocomplete="new-password" minlength="10" required>
+        <div class="toolbar"><button class="primary" type="submit">Change password</button></div>
+        <span class="msg" id="account-msg" role="status"></span>
+      </fieldset>
+    </form>
+  </section>
+
   <div id="demo"></div>
   <section class="grid status" id="status"></section>
 
@@ -270,6 +365,13 @@ const api = async (path, opts = {}) => {
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
   return r.json();
 };
+// The site this browser is looking at. The server picks the user's first
+// site when none is set, and refuses one the user may not see.
+let site = null;
+try { site = localStorage.getItem('tr-site'); } catch {}
+const setSite = (id) => { site = id; try { id ? localStorage.setItem('tr-site', id) : localStorage.removeItem('tr-site'); } catch {} };
+const withSite = (path) => site ? `${path}${path.includes('?') ? '&' : '?'}site=${encodeURIComponent(site)}` : path;
+let me = null;
 const fmtDay = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 const fmtAt = (s) => s ? s.replace('T', ' ') : 'never';
 const shift = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
@@ -349,7 +451,7 @@ function renderAlerts(list) {
   $('alerts').innerHTML = list.length ? list.map((a) => `
     <div class="alert ${esc(a.severity)}">
       <div class="row"><span class="code ${a.severity === 'high' ? 'bad' : 'warn'}">${esc(a.code.replace(/_/g, ' '))}</span>
-        <button data-ack="${a.id}">Acknowledge</button></div>
+        ${me && !me.canAct ? '' : `<button data-ack="${a.id}">Acknowledge</button>`}</div>
       <div>${esc(a.message)}</div>
       ${a.issues ? `<ul>${a.issues.slice(0, 8).map((i) => `<li>${esc(i.confirmation)}: ${esc(i.code.replace(/_/g, ' '))}${i.field ? ` (${esc(i.field)} OpenTable ${esc(i.openTable)}, SevenRooms ${esc(i.sevenRooms)})` : ''}</li>`).join('')}</ul>` : ''}
       ${a.tables ? `<ul>${a.tables.map((t) => `<li>${esc(t.date)} ${esc(t.sitting)}: ${esc(t.table)}</li>`).join('')}</ul>` : ''}
@@ -357,7 +459,7 @@ function renderAlerts(list) {
     </div>`).join('') : '<div class="empty">No open alerts.</div>';
   document.querySelectorAll('[data-ack]').forEach((b) => b.onclick = async () => {
     b.disabled = true;
-    await api(`/api/alerts/${b.dataset.ack}/ack`, { method: 'POST' });
+    await api(withSite(`/api/alerts/${b.dataset.ack}/ack`), { method: 'POST' });
     refresh();
   });
 }
@@ -382,7 +484,8 @@ function showSetup() {
 $('login').onsubmit = async (e) => {
   e.preventDefault();
   try {
-    const r = await api('/api/login', { method: 'POST', json: { password: $('password').value } });
+    const email = $('login-email').value.trim();
+    const r = await api('/api/login', { method: 'POST', json: email ? { email, password: $('password').value } : { password: $('password').value } });
     setToken(r.token);
     $('password').value = '';
     refresh();
@@ -409,7 +512,8 @@ $('setup').onsubmit = async (e) => {
 $('btn-signout').onclick = async () => {
   try { await api('/api/logout', { method: 'POST' }); } catch {}
   setToken(null);
-  $('settings').hidden = true;
+  me = null;
+  closePanels();
   showLogin('Signed out.');
 };
 
@@ -418,6 +522,7 @@ let loadedFloor = '';
 const msg = (text, ok) => { $('settings-msg').textContent = text; $('settings-msg').className = `msg ${ok ? 'ok' : 'bad'}`; };
 
 function fillSettings(s) {
+  $('settings-site').textContent = s.site ? `${s.site.name} (${s.site.id})` : '';
   $('s-inbound').value = s.inboundUrl;
   const pm = s.postmark;
   $('pm-status').innerHTML = pm.connected
@@ -451,7 +556,8 @@ function fillSettings(s) {
 
 async function openSettings(note) {
   try {
-    fillSettings(await api('/api/settings'));
+    fillSettings(await api(withSite('/api/settings')));
+    closePanels();
     $('settings').hidden = false;
     msg(note || '', true);
     $('settings').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -463,7 +569,7 @@ async function openSettings(note) {
 
 async function saveSettings(patch) {
   try {
-    const r = await api('/api/settings', { method: 'PUT', json: patch });
+    const r = await api(withSite('/api/settings'), { method: 'PUT', json: patch });
     if (r.token) setToken(r.token);
     fillSettings(r);
     msg(r.changed.length ? `Saved: ${r.changed.join(', ')}.` : 'No changes to save.', true);
@@ -538,17 +644,314 @@ $('s-regenerate').onclick = async () => {
   if (r) msg('New key created. Paste the new address into Postmark now.', true);
 };
 
+// ---- Who is signed in, and the site switcher
+async function loadMe(status) {
+  me = status.user ?? { canAct: true, isAdmin: status.role === 'admin', kind: status.role ? 'shared' : 'demo', name: '' };
+  let sites = [];
+  if (!window.tableRunnerApi && status.role) {
+    try { sites = (await api('/api/me')).sites; } catch {}
+  }
+  const sel = $('site-select');
+  sel.innerHTML = sites.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}${x.active ? '' : ' (archived)'}</option>`).join('');
+  sel.value = status.site ?? '';
+  sel.hidden = $('site-select-label').hidden = sites.length < 2;
+  $('btn-settings').hidden = $('btn-sites').hidden = $('btn-users').hidden = !me.isAdmin;
+  $('btn-account').hidden = me.kind !== 'user';
+  $('btn-signout').hidden = !status.role;
+  $('btn-reconcile').hidden = $('btn-release').hidden = !me.canAct;
+  $('who-am-i').textContent = status.role ? `${me.name}${me.role ? `, ${me.role}` : ''}` : '';
+}
+
+$('site-select').onchange = (e) => {
+  setSite(e.target.value);
+  selected = null;
+  if (!$('settings').hidden) openSettings();
+  refresh();
+};
+
+function closePanels() {
+  for (const id of ['settings', 'sites-panel', 'users-panel', 'account-panel']) $(id).hidden = true;
+}
+
+function showPanel(id) {
+  closePanels();
+  $(id).hidden = false;
+  $(id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+const note = (id, text, ok) => { $(id).textContent = text; $(id).className = `msg ${ok ? 'ok' : 'bad'}`; };
+const fmtWhen = (s) => s ? s.replace('T', ' ') : 'Never';
+
+// Two clicks for anything destructive: the first arms, the second acts.
+function armed(btn, label, confirmLabel, run) {
+  if (btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = label; return run(); }
+  btn.dataset.armed = '1';
+  btn.textContent = confirmLabel;
+  setTimeout(() => { if (btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = label; } }, 8000);
+}
+
+// ---- Sites (admin)
+let sitesCache = [];
+let editingSite = null;
+
+async function openSites(message) {
+  try {
+    sitesCache = (await api('/api/sites')).sites;
+    renderSites();
+    resetSiteForm();
+    showPanel('sites-panel');
+    if (message) note('sites-msg', message, true);
+  } catch (err) {
+    if (err instanceof AuthRequired) return showLogin('');
+    $('demo').innerHTML = `<div class="banner">${esc(err.message)}</div>`;
+  }
+}
+
+function renderSites() {
+  $('sites-table').innerHTML = `<tr><th>Site</th><th>Code</th><th>Status</th><th>Floor plan</th><th>SevenRooms</th><th>Emails in</th><th>Alerts to</th><th></th></tr>`
+    + sitesCache.map((x) => `<tr>
+      <td><strong>${esc(x.name)}</strong>${x.id === site ? ' <span class="pill ok">viewing</span>' : ''}</td>
+      <td><code>${esc(x.id)}</code></td>
+      <td>${x.active ? '<span class="pill ok">Active</span>' : '<span class="pill">Archived</span>'}</td>
+      <td>${x.example ? '<span class="pill warn">Example</span>' : `${x.tables} tables, ${x.sittings} sittings`}</td>
+      <td>${x.sevenRoomsMode === 'live' ? '<span class="pill ok">Live</span>' : '<span class="pill warn">Shadow</span>'}</td>
+      <td>${x.postmarkConnected ? '<span class="pill ok">Postmark</span>' : '<span class="pill warn">Not connected</span>'}</td>
+      <td>${x.alertWebhook ? 'Dashboard and webhook' : 'Dashboard only'}</td>
+      <td><div class="toolbar">
+        <button data-site-view="${esc(x.id)}">Dashboard</button>
+        <button data-site-settings="${esc(x.id)}">Settings</button>
+        <button data-site-edit="${esc(x.id)}">Rename</button>
+        <button data-site-active="${esc(x.id)}">${x.active ? 'Archive' : 'Reopen'}</button>
+      </div></td></tr>`).join('');
+  document.querySelectorAll('[data-site-view]').forEach((b) => b.onclick = () => { setSite(b.dataset.siteView); selected = null; closePanels(); refresh(); });
+  document.querySelectorAll('[data-site-settings]').forEach((b) => b.onclick = () => { setSite(b.dataset.siteSettings); refresh(); openSettings(); });
+  document.querySelectorAll('[data-site-edit]').forEach((b) => b.onclick = () => {
+    const x = sitesCache.find((y) => y.id === b.dataset.siteEdit);
+    editingSite = x.id;
+    $('site-form-title').textContent = `Rename ${x.name}`;
+    $('site-name').value = x.name;
+    $('site-code').value = x.id;
+    $('site-code').disabled = true;
+    $('site-submit').textContent = 'Save name';
+    $('site-cancel').hidden = false;
+    $('site-name').focus();
+  });
+  document.querySelectorAll('[data-site-active]').forEach((b) => b.onclick = () => {
+    const x = sitesCache.find((y) => y.id === b.dataset.siteActive);
+    const label = x.active ? 'Archive' : 'Reopen';
+    if (x.active) note('sites-msg', `Archiving ${x.name} stops its emails, releases and reconciliation, and hides it from managers and viewers. Bookings are kept. Click again to confirm.`, false);
+    armed(b, label, x.active ? 'Confirm archive' : 'Confirm reopen', async () => {
+      try {
+        await api(`/api/sites/${encodeURIComponent(x.id)}`, { method: 'PUT', json: { active: !x.active } });
+        await openSites(`${x.name} ${x.active ? 'archived' : 'reopened'}.`);
+        refresh();
+      } catch (err) { note('sites-msg', err.message, false); }
+    });
+  });
+}
+
+function resetSiteForm() {
+  editingSite = null;
+  $('site-form-title').textContent = 'Add a site';
+  $('site-name').value = '';
+  $('site-code').value = '';
+  $('site-code').disabled = false;
+  delete $('site-code').dataset.touched;
+  $('site-submit').textContent = 'Add site';
+  $('site-cancel').hidden = true;
+  note('sites-msg', '', true);
+}
+
+// Suggest a code from the name until the admin types one of their own.
+$('site-name').oninput = () => {
+  if (editingSite || $('site-code').dataset.touched) return;
+  $('site-code').value = $('site-name').value.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+};
+$('site-code').oninput = () => { $('site-code').dataset.touched = '1'; };
+$('site-cancel').onclick = resetSiteForm;
+$('site-form').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    if (editingSite) {
+      await api(`/api/sites/${encodeURIComponent(editingSite)}`, { method: 'PUT', json: { name: $('site-name').value } });
+      await openSites('Name saved.');
+    } else {
+      const x = await api('/api/sites', { method: 'POST', json: { id: $('site-code').value.trim(), name: $('site-name').value } });
+      await openSites(`${x.name} added. Open its Settings to connect Postmark and paste the real floor plan, then give users access on the Users screen.`);
+    }
+    refresh();
+  } catch (err) { note('sites-msg', err.message, false); }
+};
+$('btn-sites').onclick = () => openSites();
+$('sites-close').onclick = () => { $('sites-panel').hidden = true; };
+
+// ---- Users (admin)
+let usersCache = { users: [], sites: [], roles: {} };
+let editingUser = null;
+
+async function openUsers(message) {
+  try {
+    usersCache = await api('/api/users');
+    renderUsers();
+    resetUserForm();
+    showPanel('users-panel');
+    if (message) note('users-msg', message, true);
+    const log = await api('/api/audit');
+    $('audit').innerHTML = log.length ? log.map((i) => `<li><time>${esc(i.at.slice(5).replace('T', ' '))}</time><span>${esc(i.message)}${i.detail?.by ? ` <span class="muted">by ${esc(i.detail.by)}</span>` : ''}</span></li>`).join('') : '<li class="empty">Nothing yet.</li>';
+  } catch (err) {
+    if (err instanceof AuthRequired) return showLogin('');
+    $('demo').innerHTML = `<div class="banner">${esc(err.message)}</div>`;
+  }
+}
+
+const siteName = (id) => usersCache.sites.find((x) => x.id === id)?.name ?? id;
+const roleTone = { admin: 'bad', manager: 'ok', viewer: '' };
+
+function renderUsers() {
+  const rows = usersCache.users.slice().sort((a, b) => a.name.localeCompare(b.name));
+  $('users-table').innerHTML = `<tr><th>Name</th><th>Email</th><th>Role</th><th>Sites</th><th>Status</th><th>Last sign-in</th><th></th></tr>`
+    + (rows.length ? rows.map((u) => `<tr>
+      <td><strong>${esc(u.name)}</strong></td>
+      <td>${esc(u.email)}</td>
+      <td><span class="pill ${roleTone[u.role]}">${esc(u.role)}</span></td>
+      <td>${u.sites.includes('*') ? 'All sites' : u.sites.map((id) => `<span class="pill">${esc(siteName(id))}</span>`).join('')}</td>
+      <td>${u.active ? '<span class="pill ok">Active</span>' : '<span class="pill">Disabled</span>'}</td>
+      <td class="muted">${esc(fmtWhen(u.lastSignInAt))}</td>
+      <td><div class="toolbar">
+        <button data-user-edit="${esc(u.id)}">Edit</button>
+        <button data-user-active="${esc(u.id)}">${u.active ? 'Disable' : 'Enable'}</button>
+        <button data-user-delete="${esc(u.id)}">Delete</button>
+      </div></td></tr>`).join('')
+      : '<tr><td colspan="7" class="empty">No named users yet. Everyone signs in with the shared team or admin password. Add people below so each has their own sign-in, role and sites.</td></tr>');
+  document.querySelectorAll('[data-user-edit]').forEach((b) => b.onclick = () => editUser(usersCache.users.find((u) => u.id === b.dataset.userEdit)));
+  document.querySelectorAll('[data-user-active]').forEach((b) => b.onclick = () => {
+    const u = usersCache.users.find((x) => x.id === b.dataset.userActive);
+    const go = async () => {
+      try {
+        await api(`/api/users/${u.id}`, { method: 'PUT', json: { active: !u.active } });
+        await openUsers(`${u.name} ${u.active ? 'disabled and signed out' : 'enabled'}.`);
+      } catch (err) { note('users-msg', err.message, false); }
+    };
+    if (!u.active) return go();
+    armed(b, 'Disable', 'Confirm disable', go);
+  });
+  document.querySelectorAll('[data-user-delete]').forEach((b) => b.onclick = () => {
+    const u = usersCache.users.find((x) => x.id === b.dataset.userDelete);
+    note('users-msg', `Deleting ${u.name} removes their sign-in for good. Disable instead if they may come back. Click again to confirm.`, false);
+    armed(b, 'Delete', 'Confirm delete', async () => {
+      try {
+        await api(`/api/users/${u.id}`, { method: 'DELETE' });
+        await openUsers(`${u.name} deleted.`);
+      } catch (err) { note('users-msg', err.message, false); }
+    });
+  });
+}
+
+function renderUserSites(selectedSites) {
+  const all = selectedSites.includes('*');
+  $('u-sites').innerHTML = `<label><input type="checkbox" value="*" ${all ? 'checked' : ''}> All sites, including future ones</label>`
+    + usersCache.sites.map((x) => `<label><input type="checkbox" value="${esc(x.id)}" ${all || selectedSites.includes(x.id) ? 'checked' : ''} ${all ? 'disabled' : ''}> ${esc(x.name)}${x.active ? '' : ' (archived)'}</label>`).join('');
+  $('u-sites').querySelector('input[value="*"]').onchange = (e) => {
+    $('u-sites').querySelectorAll('input:not([value="*"])').forEach((c) => { c.disabled = e.target.checked; if (e.target.checked) c.checked = true; });
+  };
+}
+
+function syncRoleUi() {
+  const role = $('u-role').value;
+  $('u-sites-wrap').hidden = role === 'admin';
+  $('u-role-hint').textContent = usersCache.roles[role] ?? '';
+}
+
+function resetUserForm() {
+  editingUser = null;
+  $('user-form-title').textContent = 'Add a user';
+  $('u-role').innerHTML = Object.keys(usersCache.roles).map((r) => `<option value="${r}">${r[0].toUpperCase() + r.slice(1)}</option>`).join('');
+  $('u-role').value = 'manager';
+  $('u-name').value = ''; $('u-email').value = ''; $('u-password').value = '';
+  $('u-password').required = true;
+  $('u-password-label').textContent = 'Password (10 characters or more). Give it to them in person or by phone, not by email.';
+  $('user-submit').textContent = 'Add user';
+  $('user-cancel').hidden = true;
+  renderUserSites(site ? [site] : []);
+  syncRoleUi();
+  note('users-msg', '', true);
+}
+
+function editUser(u) {
+  resetUserForm();
+  editingUser = u.id;
+  $('user-form-title').textContent = `Edit ${u.name}`;
+  $('u-name').value = u.name; $('u-email').value = u.email; $('u-role').value = u.role;
+  $('u-password').required = false;
+  $('u-password-label').textContent = 'New password (leave blank to keep). Setting one signs them out.';
+  $('user-submit').textContent = 'Save changes';
+  $('user-cancel').hidden = false;
+  renderUserSites(u.sites);
+  syncRoleUi();
+  $('user-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  $('u-name').focus();
+}
+
+$('u-role').onchange = syncRoleUi;
+$('user-cancel').onclick = resetUserForm;
+$('user-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const checked = [...$('u-sites').querySelectorAll('input:checked')].map((c) => c.value);
+  const body = { name: $('u-name').value, email: $('u-email').value, role: $('u-role').value };
+  if (body.role !== 'admin') body.sites = checked.includes('*') ? ['*'] : checked;
+  if ($('u-password').value) body.password = $('u-password').value;
+  try {
+    if (editingUser) {
+      await api(`/api/users/${editingUser}`, { method: 'PUT', json: body });
+      await openUsers(`${body.name} saved.`);
+    } else {
+      await api('/api/users', { method: 'POST', json: body });
+      await openUsers(`${body.name} added. They sign in with ${body.email} and the password you set.`);
+    }
+  } catch (err) { note('users-msg', err.message, false); }
+};
+$('btn-users').onclick = () => openUsers();
+$('users-close').onclick = () => { $('users-panel').hidden = true; };
+
+// ---- My account (named users)
+$('btn-account').onclick = () => {
+  $('account-who').textContent = me ? `Signed in as ${me.name} (${me.email}), ${me.role}.` : '';
+  $('a-current').value = ''; $('a-new').value = '';
+  note('account-msg', '', true);
+  showPanel('account-panel');
+};
+$('account-close').onclick = () => { $('account-panel').hidden = true; };
+$('account-form').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    const r = await api('/api/me/password', { method: 'PUT', json: { currentPassword: $('a-current').value, newPassword: $('a-new').value } });
+    setToken(r.token);
+    $('a-current').value = ''; $('a-new').value = '';
+    note('account-msg', 'Password changed. Your other sessions are signed out.', true);
+  } catch (err) {
+    if (err instanceof AuthRequired) return showLogin('');
+    note('account-msg', err.message, false);
+  }
+};
+
 async function refresh(fromLogin) {
   try {
-    const status = await api('/api/status');
+    let status;
+    try {
+      status = await api(withSite('/api/status'));
+    } catch (err) {
+      // The remembered site was archived or taken away: fall back to the default.
+      if (site && !(err instanceof AuthRequired)) { setSite(null); status = await api('/api/status'); }
+      else throw err;
+    }
     delete document.body.dataset.auth;
     $('login').hidden = true;
     $('setup').hidden = true;
-    $('btn-settings').hidden = status.role !== 'admin';
-    $('btn-signout').hidden = !status.role;
+    if (status.site) setSite(status.site);
+    await loadMe(status);
     renderStatus(status);
     const [day, week, alerts, activity] = await Promise.all([
-      api(`/api/day?date=${selected}`), api(`/api/week?from=${today}`), api('/api/alerts'), api('/api/activity'),
+      api(withSite(`/api/day?date=${selected}`)), api(withSite(`/api/week?from=${today}`)), api(withSite('/api/alerts')), api(withSite('/api/activity')),
     ]);
     renderDay(day); renderWeek(week); renderAlerts(alerts); renderActivity(activity);
   } catch (e) {
@@ -559,7 +962,7 @@ async function refresh(fromLogin) {
 
 async function action(btn, path) {
   btn.disabled = true;
-  try { await api(path, { method: 'POST' }); } finally { btn.disabled = false; refresh(); }
+  try { await api(withSite(path), { method: 'POST' }); } finally { btn.disabled = false; refresh(); }
 }
 
 $('btn-reconcile').onclick = (e) => action(e.target, '/api/reconcile');

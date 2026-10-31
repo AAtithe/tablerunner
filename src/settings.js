@@ -226,18 +226,21 @@ export class Sessions {
     return `tr:session:${createHash('sha256').update(token).digest('hex')}`;
   }
 
-  async create(role, epoch) {
+  // `extra` carries a named user's id and their own epoch, so changing one
+  // user's access signs out only that user.
+  async create(role, epoch, extra = {}) {
     const token = randomSecret(32);
-    await this.redis.cmd('SET', this.#key(token), JSON.stringify({ role, epoch }), 'EX', SESSION_TTL_S);
+    await this.redis.cmd('SET', this.#key(token), JSON.stringify({ role, epoch, ...extra }), 'EX', SESSION_TTL_S);
     return token;
   }
 
+  // The stored session if it is still valid for this install epoch.
   async verify(token, epoch) {
     if (!token) return null;
     const raw = await this.redis.cmd('GET', this.#key(token));
     if (!raw) return null;
     const s = JSON.parse(raw);
-    return s.epoch === epoch ? s.role : null;
+    return s.epoch === epoch ? s : null;
   }
 
   async destroy(token) {

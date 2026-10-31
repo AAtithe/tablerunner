@@ -156,8 +156,9 @@ test('scheduled jobs run without a secret and reconciliation is rate-limited', a
   await setUp();
   assert.equal((await call('GET', '/api/cron/release')).statusCode, 200);
   const first = (await call('GET', '/api/cron/reconcile')).json();
-  assert.equal(first.checked, 0);
-  assert.equal((await call('GET', '/api/index?route=cron/reconcile')).json().skipped, 'ran in the last 10 minutes');
+  assert.equal(first.sites[0].site, 'broadcaster');
+  assert.equal(first.sites[0].result.checked, 0);
+  assert.equal((await call('GET', '/api/index?route=cron/reconcile')).json().sites[0].result.skipped, 'ran in the last 10 minutes');
 });
 
 test('missing storage connection is reported plainly', async () => {

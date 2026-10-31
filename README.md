@@ -29,6 +29,7 @@ a morning reconciliation catches anything the sync missed.
 | `src/adapters/redis.js` | Redis storage, shadow SevenRooms and the cross-instance booking lock; Upstash REST client |
 | `src/adapters/redis-tcp.js` | Direct Redis connection from `REDIS_URL` |
 | `src/settings.js` | In-app settings, first-run setup, password hashing, sessions, floor plan validation |
+| `src/directory.js` | Users (roles, site access) and sites (one per venue: floor plan, SevenRooms, webhook key, Postmark) |
 | `src/postmark.js` | Connects a Postmark server's inbound webhook to Table Runner |
 | `src/live.js`, `src/vercel.js`, `api/index.js` | Live service on Vercel: wiring from saved settings, authenticated API |
 | `scripts/build-static.js` | Builds `dist/index.html` (live dashboard) and `dist/demo/index.html` (browser-only demo) |
@@ -89,9 +90,38 @@ OpenTable email is processed and shown with the table it would take, but
 nothing is written to SevenRooms. The Settings screen refuses live mode until
 the SevenRooms connection is built (`SevenRoomsClient.implemented`).
 
+Sites and users:
+
+- Sites screen (admin): add a site with a name and a code, rename it, archive or
+  reopen it. The code keys that site's bookings in Redis and never changes.
+  Each site has its own floor plan, SevenRooms connection, alert webhook,
+  email webhook key and Postmark server, all on its Settings screen. A new
+  site starts in shadow mode on the example floor plan. Archiving stops its
+  emails (Postmark is told to stop retrying), releases and reconciliation, and
+  hides it from managers and viewers; its bookings are kept. Sites are never
+  deleted.
+- Users screen (admin): add named users who sign in by email. Roles: admin
+  (every site, Settings, Users, Sites), manager (their sites; runs releases and
+  reconciliation, acknowledges alerts), viewer (their sites, read only). A
+  user can be given named sites or all sites, including future ones. Changing
+  a user's role, sites, email or password, or disabling them, signs that user
+  out at once and nobody else. An admin cannot disable, demote or delete
+  their own account. Users change their own password under My account.
+- Admin log (Users screen): every user, site and settings change and who made it.
+- Existing installs: the single venue becomes the first site on first load.
+  The shared team and admin passwords keep working; the team password has
+  manager rights on every site.
+- Scheduled jobs run every active site in turn; one site failing does not stop the others.
+
+API: `GET /api/me`, `PUT /api/me/password`, `GET|POST /api/sites`,
+`GET|PUT /api/sites/:id`, `GET|POST /api/users`, `PUT|DELETE /api/users/:id`,
+`GET /api/audit`. Dashboard and settings routes take `?site=`; without it the
+user's first active site is used.
+
 Access:
 
-- Team password: dashboard. Admin password: dashboard and Settings.
+- Named users: email and password, by role and site as above.
+- Team password: dashboard on every site. Admin password: everything.
 - Sessions last 12 hours. Changing a password signs everyone else out.
 - Ten failed sign-ins from one address lock it out for 15 minutes.
 - Passwords are stored only as scrypt hashes.
