@@ -20,6 +20,8 @@ a morning reconciliation catches anything the sync missed.
 | `src/reconcile.js` | Daily OpenTable vs SevenRooms comparison with alert |
 | `src/adapters/opentable-email.js` | Parses OpenTable notification emails (fallback if no partner API) |
 | `src/adapters/sevenrooms.js` | SevenRooms adapter contract, in-memory double, live client stub |
+| `test/sevenrooms-contract.js` | Contract tests every SevenRooms adapter must pass, including the live client against the sandbox |
+| `docs/runbook-sevenrooms-failure.md` | What hosts and the sync owner do when the sync fails during service |
 | `src/alert.js` | Alert sinks |
 | `src/store.js` | Booking ledger keyed by OpenTable confirmation number |
 | `src/adapters/opentable-ledger.js` | OpenTable's own record of bookings, kept apart so reconciliation compares two independent sources |
@@ -131,3 +133,17 @@ Blocked:
 ```bash
 npm test
 ```
+
+The SevenRooms contract tests run against the in-memory double and the shadow
+store on every run. Once the live client is written, run them against the
+SevenRooms sandbox before setting `SevenRoomsClient.implemented` to true:
+
+```bash
+SEVENROOMS_SANDBOX_CLIENT_ID=... SEVENROOMS_SANDBOX_CLIENT_SECRET=... \
+SEVENROOMS_SANDBOX_VENUE_ID=... SEVENROOMS_SANDBOX_BASE_URL=... \
+SEVENROOMS_SANDBOX_TABLES=A1,A2 SEVENROOMS_SANDBOX_DATE=2027-01-12 \
+npm test
+```
+
+These settings are read only by the test run. The service takes its
+SevenRooms settings from the Settings screen.

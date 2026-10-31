@@ -2,6 +2,8 @@
 // no client library is needed. Each class mirrors its in-memory counterpart.
 // Keys are prefixed per venue, so one database can serve several venues.
 
+import { assertTableFree } from './sevenrooms.js';
+
 export class RedisRest {
   constructor({ url, token, fetchImpl = fetch }) {
     this.url = url.replace(/\/$/, '');
@@ -90,6 +92,7 @@ export class RedisShadowSevenRooms {
   }
 
   async createReservation(r) {
+    assertTableFree(await values(this.redis, this.key), r);
     const id = `shadow_${await this.redis.cmd('INCR', this.seqKey)}`;
     await this.redis.cmd('HSET', this.key, id, JSON.stringify({ ...r, id, status: 'active' }));
     return id;
@@ -98,7 +101,9 @@ export class RedisShadowSevenRooms {
   async updateReservation(id, r) {
     const existing = parse(await this.redis.cmd('HGET', this.key, id));
     if (!existing) throw new Error(`unknown reservation ${id}`);
-    await this.redis.cmd('HSET', this.key, id, JSON.stringify({ ...existing, ...r }));
+    const next = { ...existing, ...r };
+    assertTableFree(await values(this.redis, this.key), next, id);
+    await this.redis.cmd('HSET', this.key, id, JSON.stringify(next));
   }
 
   async cancelReservation(id) {
