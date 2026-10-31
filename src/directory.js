@@ -171,6 +171,8 @@ export const clientsOfUser = (settings, u) => [...new Set([...u.clients, ...u.si
 export function publicUser(u) {
   return {
     id: u.id, name: u.name, email: u.email, role: u.role, sites: u.sites, clients: u.clients ?? [], active: u.active,
+    // Invited: has not yet set a password from their invite link.
+    invited: !u.passwordHash, invitedAt: u.invitedAt ?? null,
     createdAt: u.createdAt, updatedAt: u.updatedAt ?? null, lastSignInAt: u.lastSignInAt ?? null,
   };
 }
@@ -218,9 +220,12 @@ function checkNewPassword(pw) {
   return [];
 }
 
+// With `invite: true` no password is set: the user sets one from the invite
+// link emailed to them.
 export async function createUser(settings, body, { at, actor }) {
   const access = resolveAccess(settings, body, actor);
-  const errors = [...checkUserFields(settings, body, { creating: true }), ...access.errors, ...checkNewPassword(body.password)];
+  const invite = Boolean(body.invite) && !body.password;
+  const errors = [...checkUserFields(settings, body, { creating: true }), ...access.errors, ...(invite ? [] : checkNewPassword(body.password))];
   if (errors.length) throw userError(400, errors.join(' '));
   const user = {
     id: randomUUID(),
@@ -231,8 +236,9 @@ export async function createUser(settings, body, { at, actor }) {
     clients: access.clients,
     active: true,
     epoch: 1,
-    passwordHash: await hashPassword(body.password),
+    passwordHash: invite ? null : await hashPassword(body.password),
     createdAt: at,
+    ...(invite ? { invitedAt: at, linkNonce: randomSecret(12) } : {}),
   };
   return {
     settings: { ...settings, users: [...settings.users, user] },
@@ -276,12 +282,22 @@ export async function updateUser(settings, id, body, { at, actor }) {
   const next = { ...user };
   const changed = [];
   if (body.name !== undefined && body.name.trim() !== user.name) { next.name = body.name.trim(); changed.push('name'); }
-  if (body.email !== undefined && normaliseEmail(body.email) !== user.email) { next.email = normaliseEmail(body.email); changed.push('email'); }
+  if (body.email !== undefined && normaliseEmail(body.email) !== user.email) {
+    next.email = normaliseEmail(body.email);
+    // Links already emailed to the old address stop working.
+    delete next.linkNonce;
+    changed.push('email');
+  }
   if (body.role !== undefined && body.role !== user.role) { next.role = body.role; changed.push('role'); }
   if (!sameList(access.sites, user.sites)) { next.sites = access.sites; changed.push('sites'); }
   if (!sameList(access.clients, user.clients)) { next.clients = access.clients; changed.push('clients'); }
   if (body.active !== undefined && Boolean(body.active) !== user.active) { next.active = Boolean(body.active); changed.push(next.active ? 'enabled' : 'disabled'); }
-  if (body.password !== undefined) { next.passwordHash = await hashPassword(body.password); changed.push('password'); }
+  if (body.password !== undefined) {
+    next.passwordHash = await hashPassword(body.password);
+    delete next.invitedAt;
+    delete next.linkNonce;
+    changed.push('password');
+  }
   // Any change to access, or a new password, ends that user's open sessions.
   if (changed.some((c) => ['role', 'sites', 'clients', 'disabled', 'password', 'email'].includes(c))) next.epoch = (user.epoch ?? 1) + 1;
   if (changed.length) next.updatedAt = at;
@@ -293,6 +309,40 @@ export async function updateUser(settings, id, body, { at, actor }) {
     clients: [...new Set([...clientsOfUser(settings, user), ...clientsOfUser(settings, next)])],
     message: changed.length ? `User ${next.email} changed: ${changed.join(', ')}` : '',
   };
+}
+
+// ---- Invite and reset links
+
+// A fresh nonce for a new emailed link; older links for this user stop working.
+export function issueLink(settings, id, { at, kind }) {
+  const user = findUser(settings, id);
+  if (!user) throw userError(404, 'User not found.');
+  if (!user.active) throw userError(400, `${user.name} is disabled. Enable them first.`);
+  const next = { ...user, linkNonce: randomSecret(12), ...(kind === 'invite' ? { invitedAt: at } : {}) };
+  return { settings: { ...settings, users: settings.users.map((u) => (u.id === id ? next : u)) }, user: next };
+}
+
+// Sets the password from a link. A reset also signs out every other session.
+export async function acceptLink(settings, record, password, { at }) {
+  const user = findUser(settings, record.userId);
+  if (!user || !user.active || !user.linkNonce || user.linkNonce !== record.nonce) {
+    throw userError(410, 'This link has been used, replaced by a newer one, or the account was changed. Ask your admin for a new one.');
+  }
+  const errors = checkNewPassword(password);
+  if (errors.length) throw userError(400, errors.join(' '));
+  const next = { ...user, passwordHash: await hashPassword(password), epoch: (user.epoch ?? 1) + 1, updatedAt: at };
+  delete next.linkNonce;
+  delete next.invitedAt;
+  return { settings: { ...settings, users: settings.users.map((u) => (u.id === user.id ? next : u)) }, user: next };
+}
+
+// Plain-language access for an invite email: "Open House (all sites), Soho".
+export function accessNames(settings, user) {
+  if (user.role === 'admin' || user.sites.includes('*')) return ['every client and site'];
+  return [
+    ...user.clients.map((id) => `${findClient(settings, id)?.name ?? id} (all sites)`),
+    ...user.sites.map((id) => findSite(settings, id)?.name ?? id),
+  ];
 }
 
 export function deleteUser(settings, id, { actor }) {

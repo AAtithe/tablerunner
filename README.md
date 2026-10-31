@@ -31,6 +31,7 @@ a morning reconciliation catches anything the sync missed.
 | `src/settings.js` | In-app settings, setup code, password hashing, sessions, floor plan validation |
 | `src/directory.js` | Clients (groups), sites (one per venue: floor plan, SevenRooms, webhook key, Postmark) and users (role, client and site access) |
 | `src/postmark.js` | Connects a Postmark server's inbound webhook to Table Runner |
+| `src/mail.js` | Outbound email through Postmark: invite and password reset links, test email, message templates |
 | `src/live.js`, `src/vercel.js`, `api/index.js` | Live service on Vercel: wiring from saved settings, authenticated API |
 | `scripts/build-static.js` | Builds `dist/index.html` (live dashboard) and `dist/demo/index.html` (browser-only demo) |
 
@@ -92,6 +93,36 @@ OpenTable email is processed and shown with the table it would take, but
 nothing is written to SevenRooms. The Settings screen refuses live mode until
 the SevenRooms connection is built (`SevenRoomsClient.implemented`).
 
+Admin panel (the Admin button, for admins and client admins) has five tabs:
+
+- Overview: counts of clients, sites, users and invites, and a Needs attention
+  list with a button for each item: email sending not set up, only one admin,
+  a site with no Postmark connection or still on the example floor plan, an
+  invite not yet accepted or expired. Recent changes underneath.
+- Clients and sites, and Users: described below.
+- Email (admins only): connect Postmark for sending, set the From address and
+  name and the public address used in links, send yourself a test, and
+  preview the invite and password reset emails exactly as they are sent.
+- Admin log: every change and who made it, filtered by type and searchable.
+
+Invites and password resets:
+
+- Adding a user offers two ways in: email an invite (they choose their own
+  password from a link), or set a password now and pass it on yourself.
+- Links work once. Invite links expire after 7 days, reset links after 1
+  hour. Redis holds only a hash of each link. Sending a new link, using one,
+  or changing the user's email voids every earlier link for that user.
+- An invite is emailed before the user is saved, so a Postmark refusal leaves
+  nothing half created, and the error says what to fix in Postmark.
+- Users table: Resend invite for invited users, Send reset link for others.
+- "Forgotten your password?" on the sign-in screen emails a reset link. It
+  gives the same answer whether or not the email has an account, and counts
+  towards the 10-attempts-per-15-minutes limit.
+- Setting a new password from a reset link signs out every other session on
+  that account.
+- Postmark only sends from a verified Sender Signature or domain; the Email
+  tab explains the steps.
+
 Clients, sites and users:
 
 - A client is a hospitality group (for example Open House). A site is one
@@ -134,7 +165,10 @@ Clients, sites and users:
   from the Vercel logs creates a new admin and keeps every client, site and user.
 - Scheduled jobs run every live site in turn; one site failing does not stop the others.
 
-API: `GET /api/me`, `PUT /api/me/password`, `GET|POST /api/clients`,
+API: `GET /api/link?token=`, `POST /api/link/accept`, `POST /api/password-reset`,
+`GET /api/admin/overview`, `GET|PUT /api/mail`, `POST /api/mail/test`,
+`GET /api/mail/preview?kind=invite|reset`, `POST /api/users/:id/link`,
+`GET /api/me`, `PUT /api/me/password`, `GET|POST /api/clients`,
 `PUT|DELETE /api/clients/:id`, `GET|POST /api/sites`,
 `GET|PUT /api/sites/:id`, `GET|POST /api/users`, `PUT|DELETE /api/users/:id`,
 `GET /api/audit`. Dashboard and settings routes take `?site=`; without it the
