@@ -102,3 +102,30 @@ test('RedisRest sends Upstash REST commands and surfaces errors', async () => {
   await assert.rejects(r.cmd('BAD'), /ERR unknown/);
 });
 
+
+test('live mode with an unreadable client secret fails loudly, never silently shadows', async () => {
+  const { SevenRoomsClient } = await import('../src/adapters/sevenrooms.js');
+  const { encryptSecret, secretKeyFromEnv } = await import('../src/secrets.js');
+  const key = secretKeyFromEnv({ TABLE_RUNNER_SECRET_KEY: 'a'.repeat(32) });
+  const rotated = secretKeyFromEnv({ TABLE_RUNNER_SECRET_KEY: 'b'.repeat(32) });
+  const settings = {
+    floorPlan: config,
+    sevenRooms: { mode: 'live', clientId: 'cid', venueId: 'v1', clientSecret: encryptSecret('s3cret', key, 'sevenRooms.clientSecret') },
+  };
+  const was = SevenRoomsClient.implemented;
+  SevenRoomsClient.implemented = true;
+  try {
+    const ok = createLiveApp({ redis: new FakeRedis(), settings, clock, secretKey: key });
+    assert.equal((await ok.status()).mode.sevenRooms.value, 'Live');
+
+    const app = createLiveApp({ redis: new FakeRedis(), settings, clock, secretKey: rotated });
+    const mode = (await app.status()).mode.sevenRooms;
+    assert.equal(mode.value, 'Not connected');
+    assert.equal(mode.detail.includes('s3cret'), false);
+    const r = await app.ingestEmail(email(7));
+    assert.equal(r.action, 'failed');
+    assert.equal((await app.alerts.open())[0].code, 'sync_failed');
+  } finally {
+    SevenRoomsClient.implemented = was;
+  }
+});

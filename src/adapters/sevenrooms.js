@@ -63,6 +63,26 @@ export class MemorySevenRooms {
   }
 }
 
+// Stands in for the live client when SevenRooms is set to live but cannot be
+// used, for example because the client secret cannot be read. Every call
+// fails, so each booking raises a sync_failed alert and the host enters it by
+// hand, rather than the service falling back to shadow mode unnoticed.
+export class UnavailableSevenRooms {
+  constructor(reason) {
+    this.reason = reason;
+  }
+
+  #fail() {
+    throw new Error(`SevenRooms is not connected: ${this.reason}`);
+  }
+
+  async createReservation() { this.#fail(); }
+  async updateReservation() { this.#fail(); }
+  async cancelReservation() { this.#fail(); }
+  async listReservations() { this.#fail(); }
+  async releaseTable() { this.#fail(); }
+}
+
 // Live client. Blocked on venue API credentials and SevenRooms' API
 // documentation, both issued through the account manager. Endpoints are not
 // written from memory; they will be implemented against the issued docs.

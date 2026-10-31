@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { FakeRedis } from './fake-redis.js';
 import { createHandler } from '../src/vercel.js';
 import { redisFromEnv } from '../src/live.js';
+import { secretKeyFromEnv } from '../src/secrets.js';
 
 const clock = () => '2026-11-04T10:00';
 const TEAM = 'team-password-1';
@@ -16,10 +17,12 @@ function res() {
   return r;
 }
 
-function harness() {
+const SECRET_KEY = secretKeyFromEnv({ TABLE_RUNNER_SECRET_KEY: 'test-key-'.padEnd(40, 'k') });
+
+function harness({ secretKey = SECRET_KEY } = {}) {
   const redis = new FakeRedis();
   const logs = [];
-  const h = createHandler({ getRedis: () => redis, clock, log: (m) => logs.push(m) });
+  const h = createHandler({ getRedis: () => redis, clock, log: (m) => logs.push(m), secretKey });
   const call = async (method, url, { body, token, headers = {} } = {}) => {
     const r = res();
     await h({ method, url, body, headers: { host: 'tr.example', ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers } }, r);
@@ -90,7 +93,7 @@ test('sign-in is limited to 10 failures per address', async () => {
 });
 
 test('settings validate, log changes and refuse live SevenRooms until it exists', async () => {
-  const { call, setUp } = harness();
+  const { call, setUp, redis } = harness();
   const token = await setUp();
 
   const bad = await call('PUT', '/api/settings', { token, body: { alertWebhookUrl: 'http://insecure' } });
@@ -115,6 +118,8 @@ test('settings validate, log changes and refuse live SevenRooms until it exists'
   assert.deepEqual(ok.json().changed, ['alert webhook', 'SevenRooms client ID', 'SevenRooms venue ID', 'SevenRooms client secret', 'floor plan']);
   assert.equal(ok.json().sevenRooms.clientSecretSet, true);
   assert.equal(JSON.stringify(ok.json()).includes('s3cret'), false);
+  assert.equal(ok.json().sevenRooms.clientSecretProblem, null);
+  assert.equal(JSON.stringify([...redis.data.values()].map(String)).includes('s3cret'), false, 'never stored in plain text');
 
   const status = (await call('GET', '/api/status', { token })).json();
   assert.equal(status.mode.floorPlan.live, true);
@@ -182,4 +187,14 @@ test('storage lookup picks REST, then a direct connection, and explains failures
   assert.throws(() => redisFromEnv({ KV_REST_API_URL: 'https://x' }), (e) => /found: KV_REST_API_URL, but none is a usable connection/.test(e.message));
   assert.throws(() => redisFromEnv({ REDIS_URL: 'not-a-url-secret' }), (e) => /found: REDIS_URL/.test(e.message) && !e.message.includes('secret'));
   assert.throws(() => redisFromEnv({ PATH: '/bin' }), /No storage settings were found/);
+});
+
+test('without the encryption key the client secret is refused, not stored in plain text', async () => {
+  const { call, setUp, redis } = harness({ secretKey: null });
+  const token = await setUp();
+  assert.equal((await call('GET', '/api/settings', { token })).json().sevenRooms.secretKeySet, false);
+  const r = await call('PUT', '/api/settings', { token, body: { sevenRooms: { clientSecret: 's3cret' } } });
+  assert.equal(r.statusCode, 400);
+  assert.match(r.json().error, /TABLE_RUNNER_SECRET_KEY/);
+  assert.equal(JSON.stringify([...redis.data.values()].map(String)).includes('s3cret'), false);
 });

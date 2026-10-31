@@ -172,6 +172,7 @@
         <input id="s-client-id" autocomplete="off">
         <label for="s-client-secret">Client secret</label>
         <input id="s-client-secret" type="password" autocomplete="new-password">
+        <div class="hint" id="s-secret-hint"></div>
         <label for="s-venue-id">Venue ID</label>
         <input id="s-venue-id" autocomplete="off">
       </fieldset>
@@ -412,6 +413,12 @@ function fillSettings(s) {
   $('s-venue-id').value = s.sevenRooms.venueId;
   $('s-client-secret').value = '';
   $('s-client-secret').placeholder = s.sevenRooms.clientSecretSet ? 'Saved. Type a new one to replace it.' : '';
+  $('s-client-secret').disabled = !s.sevenRooms.secretKeySet;
+  $('s-secret-hint').textContent = !s.sevenRooms.secretKeySet
+    ? 'Stored encrypted. Before it can be saved, add TABLE_RUNNER_SECRET_KEY in Vercel (a random value of at least 32 characters, marked Sensitive) and redeploy.'
+    : s.sevenRooms.clientSecretProblem
+      ? `The saved client secret cannot be used: ${s.sevenRooms.clientSecretProblem}.`
+      : 'Stored encrypted. It is never shown again.';
   $('s-team').value = ''; $('s-admin').value = '';
   loadedFloor = JSON.stringify(s.floorPlan, null, 2);
   $('s-floor').value = loadedFloor;

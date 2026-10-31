@@ -2,11 +2,13 @@ import { scrypt, randomBytes, createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { safeEqual } from './auth.js';
 import { SevenRoomsClient } from './adapters/sevenrooms.js';
+import { SECRET_KEY_VAR, SECRET_KEY_MIN_LENGTH, encryptSecret, secretProblem } from './secrets.js';
 import { exampleConfig } from '../config/allocation.example.js';
 
 // Everything that would otherwise be an environment variable lives here, in
 // Redis, and is edited on the dashboard's Settings screen by an admin.
-// Passwords are stored only as scrypt hashes.
+// Passwords are stored only as scrypt hashes. The SevenRooms client secret
+// must be read back, so it is encrypted instead (see secrets.js).
 
 const scryptAsync = promisify(scrypt);
 const SETTINGS_KEY = 'tr:settings';
@@ -84,7 +86,8 @@ export async function completeSetup(redis, { code, teamPassword, adminPassword }
 
 // Applies an admin's changes. Returns the new settings and the names of the
 // fields that changed (never their values), for the activity log.
-export async function applySettingsChange(current, patch) {
+// `secretKey` comes from secretKeyFromEnv; without it no client secret can be saved.
+export async function applySettingsChange(current, patch, { secretKey = null } = {}) {
   const next = structuredClone(current);
   const changed = [];
   const errors = [];
@@ -126,8 +129,12 @@ export async function applySettingsChange(current, patch) {
       }
     }
     if (patch.sevenRooms.clientSecret) {
-      sr.clientSecret = String(patch.sevenRooms.clientSecret).trim();
-      changed.push('SevenRooms client secret');
+      if (!secretKey) {
+        errors.push(`The SevenRooms client secret cannot be saved until ${SECRET_KEY_VAR} is set in Vercel: a random value of at least ${SECRET_KEY_MIN_LENGTH} characters, then redeploy.`);
+      } else {
+        sr.clientSecret = encryptSecret(String(patch.sevenRooms.clientSecret).trim(), secretKey, CLIENT_SECRET_FIELD);
+        changed.push('SevenRooms client secret');
+      }
     }
     if (patch.sevenRooms.mode && patch.sevenRooms.mode !== sr.mode) {
       if (!['shadow', 'live'].includes(patch.sevenRooms.mode)) errors.push('SevenRooms mode must be shadow or live.');
@@ -135,6 +142,8 @@ export async function applySettingsChange(current, patch) {
         errors.push('SevenRooms cannot be switched to live yet: the live connection is still being built. Keep shadow mode.');
       } else if (patch.sevenRooms.mode === 'live' && !(sr.clientId && sr.clientSecret && sr.venueId)) {
         errors.push('Enter the SevenRooms client ID, client secret and venue ID before switching to live.');
+      } else if (patch.sevenRooms.mode === 'live' && secretProblem(sr.clientSecret, secretKey, CLIENT_SECRET_FIELD)) {
+        errors.push(`SevenRooms cannot be switched to live: the client secret is saved but ${secretProblem(sr.clientSecret, secretKey, CLIENT_SECRET_FIELD)}.`);
       } else {
         sr.mode = patch.sevenRooms.mode;
         changed.push('SevenRooms mode');
@@ -157,7 +166,7 @@ export async function applySettingsChange(current, patch) {
 }
 
 // What the Settings screen may see: no hashes, no stored secrets.
-export function publicSettings(s, origin) {
+export function publicSettings(s, origin, { secretKey = null } = {}) {
   return {
     inboundUrl: s.inboundSecret ? `${origin}/api/inbound-email?key=${s.inboundSecret}` : '',
     alertWebhookUrl: s.alertWebhookUrl ?? '',
@@ -166,11 +175,15 @@ export function publicSettings(s, origin) {
       clientId: s.sevenRooms?.clientId ?? '',
       venueId: s.sevenRooms?.venueId ?? '',
       clientSecretSet: Boolean(s.sevenRooms?.clientSecret),
+      clientSecretProblem: secretProblem(s.sevenRooms?.clientSecret, secretKey, CLIENT_SECRET_FIELD),
+      secretKeySet: Boolean(secretKey),
       liveAvailable: SevenRoomsClient.implemented,
     },
     floorPlan: s.floorPlan ?? exampleConfig,
   };
 }
+
+export const CLIENT_SECRET_FIELD = 'sevenRooms.clientSecret';
 
 const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
 

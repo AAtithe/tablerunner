@@ -2,7 +2,9 @@ import { createApp } from './app.js';
 import { londonNow } from './clock.js';
 import { floorPlanStatus } from './mode.js';
 import { NotifyingAlerts, WebhookAlerts } from './alert.js';
-import { SevenRoomsClient } from './adapters/sevenrooms.js';
+import { SevenRoomsClient, UnavailableSevenRooms } from './adapters/sevenrooms.js';
+import { decryptSecret } from './secrets.js';
+import { CLIENT_SECRET_FIELD } from './settings.js';
 import { PATTERNS_VERIFIED } from './adapters/opentable-email.js';
 import {
   RedisRest, RedisStore, RedisLedger, RedisShadowSevenRooms, RedisAlerts, RedisActivity, RedisState, RedisLock,
@@ -44,12 +46,29 @@ export function redisFromEnv(env, { fetchImpl = fetch } = {}) {
   throw new ConfigError(`Storage is not connected. In Vercel, open the tablerunner project, choose Storage, connect a Redis database to Production, then redeploy.${detail}`);
 }
 
-// Builds the live service from the settings saved in the app.
-export function createLiveApp({ redis, settings, clock = () => londonNow() }) {
+// Builds the live service from the settings saved in the app. `secretKey`
+// decrypts the SevenRooms client secret.
+export function createLiveApp({ redis, settings, clock = () => londonNow(), secretKey = null }) {
   const config = settings.floorPlan ?? exampleConfig;
   const sr = settings.sevenRooms ?? { mode: 'shadow' };
   const sevenRoomsLive = sr.mode === 'live' && SevenRoomsClient.implemented;
   const prefix = `tr:${config.venue}`;
+  let sevenRooms;
+  let sevenRoomsMode;
+  if (!sevenRoomsLive) {
+    sevenRooms = new RedisShadowSevenRooms(redis, prefix);
+    sevenRoomsMode = { live: false, value: 'Shadow', detail: 'Recording where each booking would go; SevenRooms not touched' };
+  } else {
+    try {
+      const clientSecret = decryptSecret(sr.clientSecret, secretKey, CLIENT_SECRET_FIELD);
+      sevenRooms = new SevenRoomsClient({ clientId: sr.clientId, clientSecret, venueId: sr.venueId });
+      sevenRoomsMode = { live: true, value: 'Live', detail: 'Writing reservations to SevenRooms' };
+    } catch (err) {
+      const reason = `the client secret is saved but ${err.message}`;
+      sevenRooms = new UnavailableSevenRooms(reason);
+      sevenRoomsMode = { live: false, value: 'Not connected', detail: `Set to live, but ${reason}. Enter OpenTable bookings in SevenRooms by hand.` };
+    }
+  }
   const notify = settings.alertWebhookUrl ? [new WebhookAlerts(settings.alertWebhookUrl)] : [];
 
   return createApp({
@@ -57,20 +76,16 @@ export function createLiveApp({ redis, settings, clock = () => londonNow() }) {
     clock,
     store: new RedisStore(redis, prefix),
     ledger: new RedisLedger(redis, prefix),
-    sevenRooms: sevenRoomsLive
-      ? new SevenRoomsClient({ clientId: sr.clientId, clientSecret: sr.clientSecret, venueId: sr.venueId })
-      : new RedisShadowSevenRooms(redis, prefix),
+    sevenRooms,
     alerts: new NotifyingAlerts(new RedisAlerts(redis, prefix, { clock }), notify),
     activity: new RedisActivity(redis, prefix, { clock }),
     state: new RedisState(redis, prefix),
     lock: new RedisLock(redis, prefix),
     // Until SevenRooms is live, releases go to the host as a checklist.
-    manualRelease: !sevenRoomsLive,
+    manualRelease: !sevenRoomsMode.live,
     mode: {
       demo: false,
-      sevenRooms: sevenRoomsLive
-        ? { live: true, value: 'Live', detail: 'Writing reservations to SevenRooms' }
-        : { live: false, value: 'Shadow', detail: 'Recording where each booking would go; SevenRooms not touched' },
+      sevenRooms: sevenRoomsMode,
       openTable: { live: false, value: 'Email ledger', detail: 'Forwarded OpenTable emails; partner API not confirmed' },
       emailParser: PATTERNS_VERIFIED
         ? { live: true, value: 'Verified', detail: 'Patterns checked against real OpenTable emails' }
