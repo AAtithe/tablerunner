@@ -73,13 +73,13 @@ The order matters. Habits come first because a slow close inflates late demand. 
 
 ## Making the change on Settings
 
-The reserve lives in the floor plan, under release, as holdBack. Only the admin password opens Settings.
+The reserve lives in each site's floor plan, under release, as holdBack. Only an admin, or a client admin for the site, can change it. If your account is a manager account, you make the decision and take it to one of them, with the Coaching row that supports it.
 
-1. Sign in with the admin password and press Settings.
-2. In Floor plan and OpenTable allocation, find the release block.
-3. Change the holdBack figures.
+1. Sign in with your own account. If you have more than one site, choose Broadcaster in the site selector.
+2. Press Settings. From the Admin panel, the same screen is under Clients and sites, Settings beside Broadcaster.
+3. In Floor plan and OpenTable allocation, find the release block and change the holdBack figures.
 4. Press Save settings. If anything is wrong, Table Runner refuses the save and says which line, and nothing changes.
-5. Check the activity log shows Settings changed: floor plan.
+5. Check the activity log shows Settings changed: floor plan. The Admin log also records who made the change.
 
 Broadcaster's current setting:
 
@@ -123,7 +123,7 @@ Once a month, 20 minutes, first week of the month. The reserve and the allocatio
 2. Read the Coaching notes headed Reserve size. They name the nights the model says to raise or lower.
 3. Go through the table row by row using the decision path above. Change no more than two rows a month.
 4. Then the allocation. Sold by release above 90%, with the sitting full before release on at least half its nights: one more OpenTable table. Below 50%: one fewer. Change one night at a time.
-5. Write down what you changed and why, with the date. The activity log records that a change was made, not your reason.
+5. Write down what you changed and why, with the date. The logs record who changed it and when, not why.
 
 After a change, check four weeks later:
 
