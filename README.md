@@ -16,7 +16,8 @@ a morning reconciliation catches anything the sync missed.
 | `config/allocation.example.js` | Example tables, sittings, OpenTable allocation per weekday and sitting, release rule |
 | `src/allocation.js` | Table assignment within the allocation, release schedule |
 | `src/sync.js` | Applies OpenTable created / modified / cancelled events to SevenRooms, idempotently |
-| `src/release.js` | Releases unsold allocation, by API or as a host checklist (`manual: true`) |
+| `src/release.js` | Releases unsold allocation less the reserve, by API or as a host checklist (`manual: true`) |
+| `docs/opentable-exposure.md` | Why released tables stay open in OpenTable, sizing the reserve, monitoring |
 | `src/reconcile.js` | Daily OpenTable vs SevenRooms comparison with alert |
 | `src/adapters/opentable-email.js` | Parses OpenTable notification emails (fallback if no partner API) |
 | `src/adapters/sevenrooms.js` | SevenRooms adapter contract, in-memory double, live client stub |
@@ -51,8 +52,8 @@ The local demo binds to localhost. `DASHBOARD_PASSWORD` adds a password if
 you expose it on a network; the live service on Vercel does not use it.
 
 API: `GET /api/status`, `GET /api/day?date=`, `GET /api/week?from=`,
-`GET /api/alerts`, `GET /api/activity`, `POST /api/reconcile`,
-`POST /api/release`, `POST /api/inbound-email`, `POST /api/alerts/:id/ack`.
+`GET /api/alerts`, `GET /api/activity`, `GET /api/late-demand?weeks=`,
+`POST /api/reconcile`, `POST /api/release`, `POST /api/opentable-closed`, `POST /api/inbound-email`, `POST /api/alerts/:id/ack`.
 
 ## Live deployment (Vercel)
 
@@ -125,9 +126,13 @@ Blocked:
 
 - Hosts and the direct widget never sell a protected OpenTable table.
 - An email the parser cannot read raises an alert. It is never dropped.
-- A release is two-sided. A released table is closed in OpenTable as well as
-  opened in SevenRooms, and the sync never places a later OpenTable booking
-  on it.
+- A release keeps a reserve. Table Runner cannot close tables in OpenTable, so
+  released tables stay bookable there until a host closes them. Each release
+  holds back `release.holdBack` unsold tables per sitting; a late OpenTable
+  booking goes on the reserve and never on a released table. When the reserve
+  runs out with released tables still open in OpenTable, Table Runner raises a
+  high alert to stop online sales for that sitting. See
+  `docs/opentable-exposure.md` for sizing the reserve and the monitoring routine.
 - The allocation stays in force after go-live. The sync removes re-keying; it
   does not replace the allocation.
 

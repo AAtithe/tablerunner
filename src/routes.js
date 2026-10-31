@@ -9,7 +9,7 @@ export function httpError(status, message) {
 
 export async function route(app, method, url, readBody) {
   const key = `${method} ${url.pathname}`;
-  const today = (await app.status()).now.slice(0, 10);
+  const today = app.today ? app.today() : (await app.status()).now.slice(0, 10);
   const date = (name) => {
     const v = url.searchParams.get(name) ?? today;
     if (!DATE.test(v)) throw httpError(400, `${name} must be YYYY-MM-DD`);
@@ -26,6 +26,16 @@ export async function route(app, method, url, readBody) {
   if (key === 'GET /api/activity') return app.activity.list({ limit: 100 });
   if (key === 'POST /api/reconcile') return app.reconcile();
   if (key === 'POST /api/release') return app.release();
+  if (key === 'POST /api/opentable-closed') {
+    const body = await readBody();
+    if (!Array.isArray(body.keys) && !(typeof body.date === 'string' && DATE.test(body.date))) throw httpError(400, 'send keys, or a date (and optional sitting)');
+    return app.confirmClosed({ keys: body.keys, date: body.date, sitting: body.sitting });
+  }
+  if (key === 'GET /api/late-demand') {
+    const weeks = Number(url.searchParams.get('weeks') ?? 8);
+    if (!Number.isInteger(weeks) || weeks < 1 || weeks > 52) throw httpError(400, 'weeks must be 1 to 52');
+    return app.lateDemand({ weeks });
+  }
   if (key === 'POST /api/inbound-email') {
     const body = await readBody();
     // Plain { subject, text } or a Postmark inbound webhook.

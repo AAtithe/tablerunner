@@ -6,6 +6,7 @@ export class MemoryStore {
   constructor() {
     this.bookings = new Map();
     this.released = new Set();
+    this.closed = new Set();
   }
 
   async get(confirmation) {
@@ -36,6 +37,19 @@ export class MemoryStore {
 
   async releasedKeys() {
     return new Set(this.released);
+  }
+
+  // Released tables a host has confirmed closed in OpenTable by hand.
+  async markClosedInOpenTable(key) {
+    this.closed.add(key);
+  }
+
+  async closedInOpenTableKeys() {
+    return new Set(this.closed);
+  }
+
+  async all({ fromDate, toDate } = {}) {
+    return [...this.bookings.values()].filter((b) => (!fromDate || b.date >= fromDate) && (!toDate || b.date <= toDate));
   }
 }
 

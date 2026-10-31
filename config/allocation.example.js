@@ -72,6 +72,9 @@ export const exampleConfig = {
   },
   "release": {
     "daysBefore": 2,
-    "time": "16:00"
+    "time": "16:00",
+    "holdBack": {
+      "default": 1
+    }
   }
 };

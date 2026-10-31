@@ -29,6 +29,7 @@ export class RedisStore {
     this.redis = redis;
     this.key = `${prefix}:bookings`;
     this.releasedKey = `${prefix}:released`;
+    this.closedKey = `${prefix}:otclosed`;
   }
 
   async get(confirmation) {
@@ -56,6 +57,18 @@ export class RedisStore {
 
   async releasedKeys() {
     return new Set((await this.redis.cmd('SMEMBERS', this.releasedKey)) ?? []);
+  }
+
+  async markClosedInOpenTable(key) {
+    await this.redis.cmd('SADD', this.closedKey, key);
+  }
+
+  async closedInOpenTableKeys() {
+    return new Set((await this.redis.cmd('SMEMBERS', this.closedKey)) ?? []);
+  }
+
+  async all({ fromDate, toDate } = {}) {
+    return (await values(this.redis, this.key)).filter((b) => (!fromDate || b.date >= fromDate) && (!toDate || b.date <= toDate));
   }
 }
 
