@@ -266,6 +266,8 @@
         <input id="s-client-id" autocomplete="off">
         <label for="s-client-secret">Client secret</label>
         <input id="s-client-secret" type="password" autocomplete="new-password">
+        <div class="hint" id="s-secret-hint"></div>
+        <div class="toolbar" id="s-rotate-wrap"><button type="button" id="s-rotate-key">New encryption key</button></div>
         <label for="s-venue-id">Venue ID</label>
         <input id="s-venue-id" autocomplete="off">
       </fieldset>
@@ -758,6 +760,11 @@ function fillSettings(s) {
   $('s-venue-id').value = s.sevenRooms.venueId;
   $('s-client-secret').value = '';
   $('s-client-secret').placeholder = s.sevenRooms.clientSecretSet ? 'Saved. Type a new one to replace it.' : '';
+  const keyDate = s.sevenRooms.encryptionKeyCreated ? s.sevenRooms.encryptionKeyCreated.slice(0, 10) : 'unknown';
+  $('s-secret-hint').textContent = s.sevenRooms.clientSecretProblem
+    ? `The saved client secret cannot be used: ${s.sevenRooms.clientSecretProblem}.`
+    : `Stored encrypted and never shown again. Encryption key created ${keyDate}.`;
+  $('s-rotate-wrap').hidden = !me?.isAdmin;
   loadedFloor = JSON.stringify(s.floorPlan, null, 2);
   $('s-floor').value = loadedFloor;
 }
@@ -833,6 +840,21 @@ $('s-pm-disconnect').onclick = async () => {
   disconnectArmed = false;
   $('s-pm-disconnect').textContent = 'Disconnect';
   await saveSettings({ disconnectPostmark: true });
+};
+
+let rotateArmed = false;
+$('s-rotate-key').onclick = async () => {
+  if (!rotateArmed) {
+    rotateArmed = true;
+    $('s-rotate-key').textContent = 'Confirm new encryption key';
+    msg('Every site\'s client secret will be re-encrypted under a new key and the old key deleted. Click again to confirm.', false);
+    setTimeout(() => { rotateArmed = false; $('s-rotate-key').textContent = 'New encryption key'; }, 8000);
+    return;
+  }
+  rotateArmed = false;
+  $('s-rotate-key').textContent = 'New encryption key';
+  const r = await saveSettings({ rotateEncryptionKey: true });
+  if (r) msg('New encryption key created. Every saved client secret was re-encrypted under it.', true);
 };
 
 let regenArmed = false;

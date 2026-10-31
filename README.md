@@ -24,6 +24,8 @@ a morning reconciliation catches anything the sync missed.
 | `src/reconcile.js` | Daily OpenTable vs SevenRooms comparison with alert |
 | `src/adapters/opentable-email.js` | Parses OpenTable notification emails (fallback if no partner API) |
 | `src/adapters/sevenrooms.js` | SevenRooms adapter contract, in-memory double, live client stub |
+| `test/sevenrooms-contract.js` | Contract tests every SevenRooms adapter must pass, including the live client against the sandbox |
+| `docs/runbook-sevenrooms-failure.md` | What hosts and the sync owner do when the sync fails during service |
 | `src/alert.js` | Alert sinks |
 | `src/store.js` | Booking ledger keyed by OpenTable confirmation number |
 | `src/adapters/opentable-ledger.js` | OpenTable's own record of bookings, kept apart so reconciliation compares two independent sources |
@@ -33,6 +35,7 @@ a morning reconciliation catches anything the sync missed.
 | `src/adapters/redis.js` | Redis storage, shadow SevenRooms and the cross-instance booking lock; Upstash REST client |
 | `src/adapters/redis-tcp.js` | Direct Redis connection from `REDIS_URL` |
 | `src/settings.js` | In-app settings, setup code, password hashing, sessions, floor plan validation |
+| `src/secrets.js` | Encryption of stored secrets that must be read back, such as the SevenRooms client secret; the app's own keyring and key rotation |
 | `src/directory.js` | Clients (groups), sites (one per venue: floor plan, SevenRooms, webhook key, Postmark) and users (role, client and site access) |
 | `src/postmark.js` | Connects a Postmark server's inbound webhook to Table Runner |
 | `src/mail.js` | Outbound email through Postmark: invite and password reset links, test email, message templates |
@@ -187,6 +190,18 @@ Access:
   disabling them, signs that user out.
 - Ten failed sign-ins from one address lock it out for 15 minutes.
 - Passwords are stored only as scrypt hashes.
+- Each site's SevenRooms client secret is stored encrypted (AES-256-GCM). The
+  app creates the key itself and keeps it in Redis apart from the settings.
+  One key covers every site; an admin replaces it with the "New encryption
+  key" button on a site's Settings screen, which re-encrypts every site's
+  secret. Secrets are never sent back to the browser or written to the
+  activity log. Because the key is in the same database, anyone with full
+  read access to Redis can recover them: keep Redis access to the Vercel team,
+  and ask SevenRooms to revoke and reissue the credentials if the database is
+  ever exposed.
+- If a client secret cannot be read while SevenRooms is live, every booking
+  raises `sync_failed` instead of the service quietly falling back to shadow
+  mode.
 - The email webhook accepts only requests carrying the key from Settings.
 - Scheduled jobs (`vercel.json`, UTC): releases at 5 minutes past every hour,
   reconciliation at 06:30. They need no secret because both only act on what
@@ -204,7 +219,8 @@ alerting, inbound email handling.
 Blocked:
 
 1. SevenRooms live client: needs venue API credentials and SevenRooms' API
-   documentation from the account manager.
+   documentation from the account manager. Requested 31 October 2026, see
+   `docs/sevenrooms-api-request.md`.
 2. OpenTable email patterns: the current patterns are provisional. Replace them
    from 10 to 20 real confirmation, modification and cancellation emails.
 3. OpenTable booking list for reconciliation: depends on partner API access, or
@@ -232,3 +248,17 @@ Blocked:
 ```bash
 npm test
 ```
+
+The SevenRooms contract tests run against the in-memory double and the shadow
+store on every run. Once the live client is written, run them against the
+SevenRooms sandbox before setting `SevenRoomsClient.implemented` to true:
+
+```bash
+SEVENROOMS_SANDBOX_CLIENT_ID=... SEVENROOMS_SANDBOX_CLIENT_SECRET=... \
+SEVENROOMS_SANDBOX_VENUE_ID=... SEVENROOMS_SANDBOX_BASE_URL=... \
+SEVENROOMS_SANDBOX_TABLES=A1,A2 SEVENROOMS_SANDBOX_DATE=2027-01-12 \
+npm test
+```
+
+These settings are read only by the test run. The service takes its
+SevenRooms settings from the Settings screen.

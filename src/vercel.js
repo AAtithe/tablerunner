@@ -1,9 +1,10 @@
 import { route } from './routes.js';
 import { passwordFromHeader, safeEqual } from './auth.js';
 import { ConfigError, createLiveApp } from './live.js';
+import { loadKeyring, saveKeyring, pruneKeyring } from './secrets.js';
 import { londonNow } from './clock.js';
 import {
-  SettingsStore, Sessions, isConfigured, ensureSetupCode, checkSetupCode, clearSetupCode, initialSettings, applySettingsChange, publicSettings,
+  SettingsStore, Sessions, isConfigured, rotateEncryptionKey, ensureSetupCode, checkSetupCode, clearSetupCode, initialSettings, applySettingsChange, publicSettings,
   verifyPassword, hashPassword, loginAllowed, recordLoginFailure, userError, inboundUrlFor, withStartingHoldBack,
 } from './settings.js';
 import {
@@ -89,7 +90,7 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
         settings = normaliseSettings(r.settings);
         await store.save(settings);
         await clearSetupCode(redis);
-        if (fresh) await createLiveApp({ redis, settings: siteView(settings, settings.sites[0].id), clock }).activity.add('settings', 'Table Runner set up');
+        if (fresh) await createLiveApp({ redis, settings: siteView(settings, settings.sites[0].id), clock, keyring: await loadKeyring(redis) }).activity.add('settings', 'Table Runner set up');
         await audit.add('setup', `${fresh ? 'Table Runner set up' : 'Admin access restored with the setup code'}: ${r.user.email} is admin`, { by: 'setup code', clients: [] });
         await redis.cmd('HSET', SIGN_IN_KEY, r.user.id, JSON.stringify({ id: r.user.id, at: clock() }));
         const token = await sessions.create('admin', settings.sessionEpoch, { userId: r.user.id, userEpoch: r.user.epoch });
@@ -190,7 +191,8 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
         return send(res, 200, answer);
       }
 
-      const liveApp = (site) => createLiveApp({ redis, settings: siteView(settings, site.id), clock });
+      let keyring = await loadKeyring(redis);
+      const liveApp = (site) => createLiveApp({ redis, settings: siteView(settings, site.id), clock, keyring });
 
       // Floor plans saved before the OpenTable reserve existed get the
       // starting reserve once, site by site; a figure an admin set is kept.
@@ -419,11 +421,25 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
       if (path === '/api/settings') {
         if (!canManageSite(principal, site)) return send(res, 403, { error: 'Only an admin, or a client admin for this site, can view or change its settings.' });
         const view = siteView(settings, site.id);
-        const withSite = (s, v) => ({ site: publicSite(findSite(s, site.id), s), ...publicSettings(v, origin) });
+        const withSite = (s, v) => ({ site: publicSite(findSite(s, site.id), s), ...publicSettings(v, origin, { keyring }) });
         if (method === 'GET') return send(res, 200, withSite(settings, view));
         if (method === 'PUT') {
           const patch = await readBody(req);
-          const { settings: nextView, changed } = await applySettingsChange(view, patch);
+          if (patch.rotateEncryptionKey) {
+            // One key covers every site, so only an admin can replace it. The
+            // new key is stored alongside the old, then the re-encrypted
+            // settings, then the old key is dropped: the secrets stay
+            // readable if this stops part way.
+            if (principal.role !== 'admin') return send(res, 403, { error: 'Only an admin can replace the encryption key, because it covers every site.' });
+            const r = rotateEncryptionKey(settings, keyring, clock());
+            await saveKeyring(redis, r.keyring);
+            await store.save(r.settings);
+            keyring = pruneKeyring(r.keyring);
+            await saveKeyring(redis, keyring);
+            await logAdmin('settings', `Encryption key replaced; ${r.count} SevenRooms client secret(s) re-encrypted`, []);
+            return send(res, 200, { ...withSite(r.settings, siteView(r.settings, site.id)), changed: ['encryption key'] });
+          }
+          const { settings: nextView, changed } = await applySettingsChange(view, patch, { keyring });
           await applyPostmark({ patch, prev: view, next: nextView, changed, origin, clock, fetchImpl });
           const next = putSiteView(settings, site.id, nextView);
           await store.save(next);

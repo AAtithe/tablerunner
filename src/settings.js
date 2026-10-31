@@ -2,12 +2,15 @@ import { scrypt, randomBytes, createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { safeEqual } from './auth.js';
 import { SevenRoomsClient } from './adapters/sevenrooms.js';
+import { addKey, currentKeyInfo, decryptSecret, encryptSecret, secretProblem } from './secrets.js';
 import { exampleConfig } from '../config/allocation.example.js';
 
 // Everything that would otherwise be an environment variable lives here, in
 // Redis, and is edited on the dashboard's Settings screen by an admin.
 // Passwords are stored only as scrypt hashes. Everyone signs in as a named
 // user; the shared team and admin passwords of earlier versions are retired.
+// The SevenRooms client secret must be read back, so it is encrypted instead,
+// under a key the app keeps apart from the settings (see secrets.js).
 
 const scryptAsync = promisify(scrypt);
 const SETTINGS_KEY = 'tr:settings';
@@ -83,9 +86,10 @@ export function initialSettings() {
   };
 }
 
-// Applies an admin's changes. Returns the new settings and the names of the
-// fields that changed (never their values), for the activity log.
-export async function applySettingsChange(current, patch) {
+// Applies an admin's changes to one site. Returns the new settings and the
+// names of the fields that changed (never their values), for the activity log.
+// `keyring` encrypts a new client secret.
+export async function applySettingsChange(current, patch, { keyring }) {
   const next = structuredClone(current);
   const changed = [];
   const errors = [];
@@ -114,7 +118,7 @@ export async function applySettingsChange(current, patch) {
       }
     }
     if (patch.sevenRooms.clientSecret) {
-      sr.clientSecret = String(patch.sevenRooms.clientSecret).trim();
+      sr.clientSecret = encryptSecret(String(patch.sevenRooms.clientSecret).trim(), keyring, CLIENT_SECRET_FIELD);
       changed.push('SevenRooms client secret');
     }
     if (patch.sevenRooms.mode && patch.sevenRooms.mode !== sr.mode) {
@@ -123,6 +127,8 @@ export async function applySettingsChange(current, patch) {
         errors.push('SevenRooms cannot be switched to live yet: the live connection is still being built. Keep shadow mode.');
       } else if (patch.sevenRooms.mode === 'live' && !(sr.clientId && sr.clientSecret && sr.venueId)) {
         errors.push('Enter the SevenRooms client ID, client secret and venue ID before switching to live.');
+      } else if (patch.sevenRooms.mode === 'live' && secretProblem(sr.clientSecret, keyring, CLIENT_SECRET_FIELD)) {
+        errors.push(`SevenRooms cannot be switched to live: the client secret is saved but ${secretProblem(sr.clientSecret, keyring, CLIENT_SECRET_FIELD)}.`);
       } else {
         sr.mode = patch.sevenRooms.mode;
         changed.push('SevenRooms mode');
@@ -147,7 +153,7 @@ export async function applySettingsChange(current, patch) {
 export const inboundUrlFor = (s, origin) => (s.inboundSecret ? `${origin}/api/inbound-email?key=${s.inboundSecret}` : '');
 
 // What the Settings screen may see: no hashes, no stored secrets.
-export function publicSettings(s, origin) {
+export function publicSettings(s, origin, { keyring }) {
   return {
     inboundUrl: inboundUrlFor(s, origin),
     postmark: s.postmark
@@ -167,10 +173,31 @@ export function publicSettings(s, origin) {
       clientId: s.sevenRooms?.clientId ?? '',
       venueId: s.sevenRooms?.venueId ?? '',
       clientSecretSet: Boolean(s.sevenRooms?.clientSecret),
+      clientSecretProblem: secretProblem(s.sevenRooms?.clientSecret, keyring, CLIENT_SECRET_FIELD),
+      encryptionKeyCreated: currentKeyInfo(keyring).created,
       liveAvailable: SevenRoomsClient.implemented,
     },
     floorPlan: s.floorPlan ?? exampleConfig,
   };
+}
+
+export const CLIENT_SECRET_FIELD = 'sevenRooms.clientSecret';
+
+// A new encryption key for the whole install. Every site's client secret that
+// can be read is re-encrypted under it; one that cannot stays as it is and
+// still has to be entered again. Returns the new settings and the keyring
+// holding both keys, so the old one is dropped only once the settings are saved.
+export function rotateEncryptionKey(settings, keyring, at) {
+  const rotated = addKey(keyring, at);
+  let count = 0;
+  const sites = settings.sites.map((site) => {
+    const stored = site.sevenRooms?.clientSecret;
+    if (!stored || secretProblem(stored, keyring, CLIENT_SECRET_FIELD)) return site;
+    count++;
+    const plain = decryptSecret(stored, keyring, CLIENT_SECRET_FIELD);
+    return { ...site, sevenRooms: { ...site.sevenRooms, clientSecret: encryptSecret(plain, rotated, CLIENT_SECRET_FIELD) } };
+  });
+  return { settings: { ...settings, sites }, keyring: rotated, count };
 }
 
 // Starting reserve for late OpenTable bookings until the coaching section has

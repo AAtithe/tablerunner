@@ -16,6 +16,16 @@ export class SyncService {
       if (event.type === 'cancelled') return await this.#cancel(event);
       return await this.#upsert(event);
     } catch (err) {
+      if (err.code === 'table_taken') {
+        const { date, sitting, table } = err.slot;
+        await this.alert.send({
+          severity: 'high',
+          code: 'table_taken',
+          message: `OpenTable ${event.confirmation}: SevenRooms already has a booking on protected table ${table} on ${date} (${sitting}). Seat this party by hand and find out who sold the protected table.`,
+          event,
+        });
+        throw err;
+      }
       await this.alert.send({
         severity: 'high',
         code: 'sync_failed',
@@ -58,7 +68,7 @@ export class SyncService {
       return { action: 'rejected', reason: placement.reason };
     }
 
-    const reservation = toReservation(event, placement.table);
+    const reservation = toReservation(event, placement);
     let sevenRoomsId;
     if (moving) {
       sevenRoomsId = existing.sevenRoomsId;
@@ -147,12 +157,13 @@ function sameBooking(record, event) {
   return record.date === event.date && record.time === event.time && record.partySize === event.partySize;
 }
 
-function toReservation(event, table) {
+function toReservation(event, { table, sitting }) {
   return {
     date: event.date,
     time: event.time,
     partySize: event.partySize,
     table,
+    sitting,
     guest: event.guest,
     notes: event.notes ?? '',
     source: 'opentable',

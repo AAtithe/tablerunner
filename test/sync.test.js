@@ -167,3 +167,12 @@ test('inbound email flows through to SevenRooms; unparseable email alerts', asyn
   assert.equal(bad.action, 'unparseable');
   assert.equal(alert.sent[0].code, 'unparseable_email');
 });
+
+test('SevenRooms refusing a taken table raises a table_taken alert', async () => {
+  const { sync, sevenRooms, alert } = setup();
+  // A host has sold protected table T1 directly in SevenRooms.
+  await sevenRooms.createReservation({ date: FRI, time: '19:00', partySize: 2, table: 'T1', sitting: 'late', source: 'direct' });
+  await assert.rejects(sync.handle(booking()), (err) => err.code === 'table_taken');
+  assert.equal(alert.sent[0].code, 'table_taken');
+  assert.match(alert.sent[0].message, /T1/);
+});

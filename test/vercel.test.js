@@ -97,7 +97,7 @@ test('sign-in is limited to 10 failures per address', async () => {
 });
 
 test('settings validate, log changes and refuse live SevenRooms until it exists', async () => {
-  const { call, setUp } = harness();
+  const { call, setUp, redis } = harness();
   const token = await setUp();
 
   const bad = await call('PUT', '/api/settings', { token, body: { alertWebhookUrl: 'http://insecure' } });
@@ -122,6 +122,8 @@ test('settings validate, log changes and refuse live SevenRooms until it exists'
   assert.deepEqual(ok.json().changed, ['alert webhook', 'SevenRooms client ID', 'SevenRooms venue ID', 'SevenRooms client secret', 'floor plan']);
   assert.equal(ok.json().sevenRooms.clientSecretSet, true);
   assert.equal(JSON.stringify(ok.json()).includes('s3cret'), false);
+  assert.equal(ok.json().sevenRooms.clientSecretProblem, null);
+  assert.equal(JSON.stringify([...redis.data.values()].map(String)).includes('s3cret'), false, 'never stored in plain text');
 
   const status = (await call('GET', '/api/status', { token })).json();
   assert.equal(status.mode.floorPlan.live, true);
@@ -225,6 +227,24 @@ test('storage lookup picks REST, then a direct connection, and explains failures
   assert.throws(() => redisFromEnv({ KV_REST_API_URL: 'https://x' }), (e) => /found: KV_REST_API_URL, but none is a usable connection/.test(e.message));
   assert.throws(() => redisFromEnv({ REDIS_URL: 'not-a-url-secret' }), (e) => /found: REDIS_URL/.test(e.message) && !e.message.includes('secret'));
   assert.throws(() => redisFromEnv({ PATH: '/bin' }), /No storage settings were found/);
+});
+
+test('the client secret survives a key rotation and the old key is deleted', async () => {
+  const { call, setUp, redis } = harness();
+  const token = await setUp();
+  await call('PUT', '/api/settings', { token, body: { sevenRooms: { clientSecret: 's3cret' } } });
+  const before = JSON.parse(await redis.cmd('GET', 'tr:keyring'));
+
+  const r = await call('PUT', '/api/settings', { token, body: { rotateEncryptionKey: true } });
+  assert.equal(r.statusCode, 200, r.body);
+  assert.deepEqual(r.json().changed, ['encryption key']);
+  assert.equal(r.json().sevenRooms.clientSecretProblem, null);
+
+  const after = JSON.parse(await redis.cmd('GET', 'tr:keyring'));
+  assert.notEqual(after.current, before.current);
+  assert.deepEqual(Object.keys(after.keys), [after.current], 'old key deleted');
+  const stored = JSON.parse(await redis.cmd('GET', 'tr:settings')).sites[0].sevenRooms.clientSecret;
+  assert.equal(stored.split('.')[1], after.current, 're-encrypted under the new key');
 });
 
 // Simulated Postmark Server API plus our own public health check.
