@@ -173,6 +173,26 @@ export function publicSettings(s, origin) {
   };
 }
 
+// Starting reserve for late OpenTable bookings until the coaching section has
+// enough history to recommend figures: one table per sitting, two on Friday
+// and Saturday late, when the venue has a sitting called "late".
+export function startingHoldBack(plan) {
+  const hb = { default: 1 };
+  if ((plan?.sittings ?? []).some((s) => s?.name === 'late')) {
+    hb.fri = { late: 2 };
+    hb.sat = { late: 2 };
+  }
+  return hb;
+}
+
+// Saved floor plans from before the reserve existed have no holdBack. Adds the
+// starting reserve once; a figure an admin has set is never touched.
+export function withStartingHoldBack(settings) {
+  const plan = settings?.floorPlan;
+  if (!plan?.release || plan.release.holdBack !== undefined) return null;
+  return { ...settings, floorPlan: { ...plan, release: { ...plan.release, holdBack: startingHoldBack(plan) } } };
+}
+
 const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export function validateFloorPlan(c) {
@@ -202,6 +222,21 @@ export function validateFloorPlan(c) {
   }
   if (!Number.isInteger(c.release?.daysBefore) || c.release.daysBefore < 0) p.push('"release.daysBefore" must be a whole number of days.');
   if (!HM.test(c.release?.time ?? '')) p.push('"release.time" must be HH:MM.');
+  const hb = c.release?.holdBack;
+  const count = (v) => Number.isInteger(v) && v >= 0;
+  if (hb !== undefined && !count(hb)) {
+    if (!hb || typeof hb !== 'object' || Array.isArray(hb)) p.push('"release.holdBack" must be a whole number, or an object of sittings and weekdays.');
+    else for (const [k, v] of Object.entries(hb)) {
+      const isDay = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].includes(k);
+      if (k !== 'default' && !names.has(k) && !isDay) p.push(`"release.holdBack.${k}" is not a sitting, weekday or default.`);
+      else if (isDay && v && typeof v === 'object' && !Array.isArray(v)) {
+        for (const [sk, sv] of Object.entries(v)) {
+          if (!names.has(sk)) p.push(`"release.holdBack.${k}.${sk}" is not a sitting.`);
+          else if (!count(sv)) p.push(`"release.holdBack.${k}.${sk}" must be a whole number of tables.`);
+        }
+      } else if (!count(v)) p.push(`"release.holdBack.${k}" must be a whole number of tables.`);
+    }
+  }
   return p;
 }
 

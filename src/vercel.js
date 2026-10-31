@@ -4,7 +4,7 @@ import { ConfigError, createLiveApp } from './live.js';
 import { londonNow } from './clock.js';
 import {
   SettingsStore, Sessions, isConfigured, ensureSetupCode, checkSetupCode, clearSetupCode, initialSettings, applySettingsChange, publicSettings,
-  verifyPassword, hashPassword, loginAllowed, recordLoginFailure, userError, inboundUrlFor,
+  verifyPassword, hashPassword, loginAllowed, recordLoginFailure, userError, inboundUrlFor, withStartingHoldBack,
 } from './settings.js';
 import {
   normaliseSettings, siteView, putSiteView, findSite, findClient, findUser, findUserByEmail, legacyAdminPrincipal, userPrincipal,
@@ -191,6 +191,18 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
       }
 
       const liveApp = (site) => createLiveApp({ redis, settings: siteView(settings, site.id), clock });
+
+      // Floor plans saved before the OpenTable reserve existed get the
+      // starting reserve once, site by site; a figure an admin set is kept.
+      const migratedSites = settings.sites.filter((x) => withStartingHoldBack({ floorPlan: x.floorPlan }));
+      if (migratedSites.length) {
+        settings = { ...settings, sites: settings.sites.map((x) => withStartingHoldBack({ floorPlan: x.floorPlan }) ? { ...x, floorPlan: withStartingHoldBack({ floorPlan: x.floorPlan }).floorPlan } : x) };
+        await store.save(settings);
+        for (const x of migratedSites) {
+          const plan = findSite(settings, x.id).floorPlan;
+          await liveApp(x).activity.add('settings', `Settings changed: OpenTable reserve set to the starting figures ${JSON.stringify(plan.release.holdBack)}`);
+        }
+      }
       const activeSites = settings.sites.filter((s) => siteLive(settings, s));
 
       if (path.startsWith('/api/cron/')) {
