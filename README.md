@@ -33,9 +33,11 @@ a morning reconciliation catches anything the sync missed.
 | `scripts/demo.js` | Dashboard on synthetic data with in-memory vendors |
 | `src/adapters/redis.js` | Redis storage, shadow SevenRooms and the cross-instance booking lock; Upstash REST client |
 | `src/adapters/redis-tcp.js` | Direct Redis connection from `REDIS_URL` |
-| `src/settings.js` | In-app settings, first-run setup, password hashing, sessions, floor plan validation |
+| `src/settings.js` | In-app settings, setup code, password hashing, sessions, floor plan validation |
 | `src/secrets.js` | Encryption of stored secrets that must be read back, such as the SevenRooms client secret; the app's own keyring and key rotation |
+| `src/directory.js` | Clients (groups), sites (one per venue: floor plan, SevenRooms, webhook key, Postmark) and users (role, client and site access) |
 | `src/postmark.js` | Connects a Postmark server's inbound webhook to Table Runner |
+| `src/mail.js` | Outbound email through Postmark: invite and password reset links, test email, message templates |
 | `src/live.js`, `src/vercel.js`, `api/index.js` | Live service on Vercel: wiring from saved settings, authenticated API |
 | `scripts/build-static.js` | Builds `dist/index.html` (live dashboard) and `dist/demo/index.html` (browser-only demo) |
 
@@ -68,7 +70,8 @@ The live service runs as one Vercel function behind `/api`, with Redis for
 storage: Upstash over its REST API when connected, otherwise any Redis
 database through its `REDIS_URL`. The dashboard is at `/` and the browser-only demo at `/demo`.
 
-All settings live in the app, on the admin Settings screen: passwords, the
+All settings live in the app: users on the Users screen, clients and sites on
+the Clients and sites screen, and per site on the Settings screen the
 email webhook key, the alert channel, SevenRooms details and the floor plan.
 There are no environment variables to set. The only connection outside the app
 is the one to the database that holds those settings, and Vercel creates it
@@ -80,7 +83,8 @@ Setup, once:
    Redis database (Upstash for Redis, or Redis). Redeploy.
 2. Open the site. It asks for a setup code. The code is in the project's
    Vercel logs (search for "setup code"), which only the Vercel team can see.
-   Enter it with a team password and a different admin password.
+   Enter it with your name, email and a password: you become the first
+   admin. Add everyone else as named users on the Users screen.
 3. Settings opens. In Postmark, create a server and copy its Server API
    token (server, API Tokens). Paste it under "OpenTable emails in" and choose
    Connect Postmark. Table Runner sets Postmark's inbound webhook itself and
@@ -97,21 +101,104 @@ OpenTable email is processed and shown with the table it would take, but
 nothing is written to SevenRooms. The Settings screen refuses live mode until
 the SevenRooms connection is built (`SevenRoomsClient.implemented`).
 
+Admin panel (the Admin button, for admins and client admins) has five tabs:
+
+- Overview: counts of clients, sites, users and invites, and a Needs attention
+  list with a button for each item: email sending not set up, only one admin,
+  a site with no Postmark connection or still on the example floor plan, an
+  invite not yet accepted or expired. Recent changes underneath.
+- Clients and sites, and Users: described below.
+- Email (admins only): connect Postmark for sending, set the From address and
+  name and the public address used in links, send yourself a test, and
+  preview the invite and password reset emails exactly as they are sent.
+- Admin log: every change and who made it, filtered by type and searchable.
+
+Invites and password resets:
+
+- Adding a user offers two ways in: email an invite (they choose their own
+  password from a link), or set a password now and pass it on yourself.
+- Links work once. Invite links expire after 7 days, reset links after 1
+  hour. Redis holds only a hash of each link. Sending a new link, using one,
+  or changing the user's email voids every earlier link for that user.
+- An invite is emailed before the user is saved, so a Postmark refusal leaves
+  nothing half created, and the error says what to fix in Postmark.
+- Users table: Resend invite for invited users, Send reset link for others.
+- "Forgotten your password?" on the sign-in screen emails a reset link. It
+  gives the same answer whether or not the email has an account, and counts
+  towards the 10-attempts-per-15-minutes limit.
+- Setting a new password from a reset link signs out every other session on
+  that account.
+- Postmark only sends from a verified Sender Signature or domain; the Email
+  tab explains the steps.
+
+Clients, sites and users:
+
+- A client is a hospitality group (for example Open House). A site is one
+  venue under it (for example Broadcaster). Every site belongs to one client.
+- Clients and sites screen: admins add clients, rename them, archive or reopen
+  them, and delete a client once it has no sites. Archiving a client takes
+  every one of its sites offline. Admins and client admins add sites to a
+  client, rename them, move them between clients, and archive or reopen them.
+  The site code keys that site's bookings in Redis and never changes. Each site
+  has its own floor plan, SevenRooms connection, alert webhook, email webhook
+  key and Postmark server, all on its Settings screen. A new site starts in
+  shadow mode on the example floor plan. An archived site stops taking emails
+  (Postmark is told to stop retrying), releases and reconciliation, and is
+  hidden from managers and viewers; its bookings are kept. Sites are never deleted.
+- Users screen: named users sign in by email. Access is given to whole clients
+  (every site the client has now and adds later), to single sites, or, for
+  admins only, to everything. Roles:
+  - admin: every client and site, Settings, Users, Clients and sites;
+  - client admin: their clients only; adds and edits those clients' sites,
+    edits their settings, and manages users whose access lies wholly inside
+    their clients. Cannot create admins, or add, archive or delete clients;
+  - manager: their sites; runs releases and reconciliation, acknowledges alerts;
+  - viewer: their sites, read only.
+  Changing a user's role, access, email or password, or disabling them, signs
+  that user out at once and nobody else. Nobody can disable, delete or change
+  the role of their own account, and the last active admin cannot be removed.
+  Users change their own password under My account.
+- Admin log (Users screen): every client, site, user and settings change and
+  who made it. A client admin sees only entries about their own clients.
+- Existing installs: the single venue becomes the first site, under a client
+  called "Unassigned". Rename that client (for example to Open House) on the
+  Clients and sites screen.
+- Shared passwords are retired. Everyone signs in with their own email and
+  password. On an install from before named users, the team password stops
+  working on deploy and its hash is deleted from storage. The old admin
+  password works only until a named admin exists: sign in with it (Sign in,
+  "Use the old admin password"), add yourself as an admin on the Users screen,
+  and from that moment it is refused, its sessions end and its hash is deleted.
+- If no active admin is ever left, the setup screen returns: the setup code
+  from the Vercel logs creates a new admin and keeps every client, site and user.
+- Scheduled jobs run every live site in turn; one site failing does not stop the others.
+
+API: `GET /api/link?token=`, `POST /api/link/accept`, `POST /api/password-reset`,
+`GET /api/admin/overview`, `GET|PUT /api/mail`, `POST /api/mail/test`,
+`GET /api/mail/preview?kind=invite|reset`, `POST /api/users/:id/link`,
+`GET /api/me`, `PUT /api/me/password`, `GET|POST /api/clients`,
+`PUT|DELETE /api/clients/:id`, `GET|POST /api/sites`,
+`GET|PUT /api/sites/:id`, `GET|POST /api/users`, `PUT|DELETE /api/users/:id`,
+`GET /api/audit`. Dashboard and settings routes take `?site=`; without it the
+user's first active site is used.
+
 Access:
 
-- Team password: dashboard. Admin password: dashboard and Settings.
-- Sessions last 12 hours. Changing a password signs everyone else out.
+- Named users only: email and password, by role, client and site as above.
+- Sessions last 12 hours. Changing a user's password, role or access, or
+  disabling them, signs that user out.
 - Ten failed sign-ins from one address lock it out for 15 minutes.
 - Passwords are stored only as scrypt hashes.
-- The SevenRooms client secret is stored encrypted (AES-256-GCM). The app
-  creates the key itself and keeps it in Redis apart from the settings; the
-  "New encryption key" button on the Settings screen replaces it and
-  re-encrypts the secret. The secret is never sent back to the browser or
-  written to the activity log. Because the key is in the same database,
-  anyone with full read access to Redis can recover the secret: keep Redis
-  access to the Vercel team, and ask SevenRooms to revoke and reissue the
-  credentials if the database is ever exposed.
-- If the client secret cannot be read while SevenRooms is live, every booking
+- Each site's SevenRooms client secret is stored encrypted (AES-256-GCM). The
+  app creates the key itself and keeps it in Redis apart from the settings.
+  One key covers every site; an admin replaces it with the "New encryption
+  key" button on a site's Settings screen, which re-encrypts every site's
+  secret. Secrets are never sent back to the browser or written to the
+  activity log. Because the key is in the same database, anyone with full
+  read access to Redis can recover them: keep Redis access to the Vercel team,
+  and ask SevenRooms to revoke and reissue the credentials if the database is
+  ever exposed.
+- If a client secret cannot be read while SevenRooms is live, every booking
   raises `sync_failed` instead of the service quietly falling back to shadow
   mode.
 - The email webhook accepts only requests carrying the key from Settings.

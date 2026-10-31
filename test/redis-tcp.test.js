@@ -52,7 +52,7 @@ test('full live flow over a real Redis connection, two instances at once', { ski
   assert.deepEqual((await call(ha, 'GET', '/api/health')).json(), { ok: true, setUp: false });
   await call(ha, 'GET', '/api/setup-status');
   const code = logs.at(-1).split(': ')[1];
-  const setup = await call(ha, 'POST', '/api/setup', { body: { code, teamPassword: 'team-password-1', adminPassword: 'admin-password-1' } });
+  const setup = await call(ha, 'POST', '/api/setup', { body: { code, name: 'Admin', email: 'admin@ws.co', password: 'admin-password-1' } });
   assert.equal(setup.statusCode, 200, setup.body);
   const token = setup.json().token;
 
@@ -65,7 +65,7 @@ test('full live flow over a real Redis connection, two instances at once', { ski
 
   const day = (await call(ha, 'GET', '/api/day?date=2026-11-06', { token })).json();
   assert.equal(day.sold, 4);
-  assert.equal((await call(hb, 'GET', '/api/cron/reconcile')).json().issues.length, 0);
+  assert.equal((await call(hb, 'GET', '/api/cron/reconcile')).json().sites[0].result.issues.length, 0);
 
   await a.close();
   await b.close();

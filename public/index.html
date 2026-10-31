@@ -96,7 +96,7 @@
   .login { max-width: 360px; margin: 24px auto; display: grid; gap: 10px; }
   .login input { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
   .login .error { color: var(--bad); font-size: 13px; min-height: 1.2em; }
-  body[data-auth="needed"] main > :not(#login):not(#setup), body[data-auth="needed"] header .toolbar { display: none; }
+  body[data-auth="needed"] main > :not(#login):not(#setup):not(#link-form):not(#forgot), body[data-auth="needed"] header .toolbar { display: none; }
   button:focus-visible, input:focus-visible, th.day:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .settings-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
   .settings-grid fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 0; display: grid; gap: 8px; min-width: 0; align-content: start; }
@@ -112,6 +112,40 @@
   .pm-box code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; color: var(--ink); }
   details summary { cursor: pointer; }
   .msg.ok { color: var(--ok); } .msg.bad { color: var(--bad); }
+  .admin-table { border-collapse: collapse; width: 100%; min-width: 640px; }
+  .admin-table th, .admin-table td { padding: 8px 6px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .admin-table th { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .admin-table td .toolbar { gap: 6px; }
+  .admin-table button { padding: 3px 9px; font-size: 12px; }
+  .pill { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--idle-soft); color: var(--muted); margin: 0 4px 2px 0; }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); } .pill.warn { background: var(--warn-soft); color: var(--warn); } .pill.bad { background: var(--bad-soft); color: var(--bad); }
+  .site-checks { display: grid; gap: 4px; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+  .site-checks label { color: var(--ink); font-size: 13px; display: flex; gap: 6px; align-items: center; }
+  .site-checks input { width: auto; }
+  .access-group { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+  .access-group:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+  .access-group .client-check { font-weight: 600; }
+  tr.client-row td { background: var(--idle-soft); }
+  tr.site-row td:first-child { padding-left: 22px; }
+  #site-select { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; max-width: 220px; }
+  .who-am-i { font-size: 12px; }
+  .admin-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; margin-bottom: 10px; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 0 0 16px; overflow-x: auto; scrollbar-width: none; }
+  .tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px; color: var(--muted); font-weight: 550; white-space: nowrap; }
+  .tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+  .tabs .count { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 999px; background: var(--bad-soft); color: var(--bad); font-size: 11px; line-height: 17px; text-align: center; }
+  .admin-tab h3 { font-size: 13px; margin: 18px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .todo { display: flex; justify-content: space-between; gap: 10px; align-items: center; border-left: 3px solid var(--idle); background: var(--idle-soft); border-radius: 6px; padding: 8px 10px; }
+  .todo.bad { border-color: var(--bad); background: var(--bad-soft); } .todo.warn { border-color: var(--warn); background: var(--warn-soft); }
+  .todo button { flex: none; padding: 3px 9px; font-size: 12px; }
+  .all-clear { color: var(--ok); background: var(--ok-soft); border-radius: 6px; padding: 10px; }
+  .choice { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--ink) !important; }
+  .choice input { width: auto !important; margin-top: 2px; }
+  .preview-frame { width: 100%; height: 520px; border: 1px solid var(--line); border-radius: 8px; background: #f6f5f2; }
+  .log-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .log-filters select, .log-filters input { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; }
+  .log-filters input { flex: 1; min-width: 160px; }
+  .linkish { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; justify-self: start; }
   .notes { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); margin-bottom: 16px; }
   .note { border-radius: 8px; padding: 10px 12px; border-left: 3px solid var(--idle); background: var(--idle-soft); }
   .note.improve { border-color: var(--bad); background: var(--bad-soft); }
@@ -133,35 +167,68 @@
   </div>
   <div class="toolbar">
     <span class="muted" id="clock"></span>
+    <label for="site-select" class="muted" id="site-select-label" hidden>Site</label>
+    <select id="site-select" hidden></select>
     <button id="btn-reconcile">Run reconciliation</button>
     <button id="btn-release">Run releases</button>
+    <button id="btn-admin" hidden>Admin</button>
     <button id="btn-settings" hidden>Settings</button>
+    <button id="btn-account" hidden>My account</button>
+    <span class="muted who-am-i" id="who-am-i"></span>
     <button id="btn-signout" hidden>Sign out</button>
   </div>
 </header>
 <main>
   <form class="panel login" id="setup" hidden>
     <h2 style="margin:0">Set up Table Runner</h2>
-    <p class="hint" style="margin:0">This is a new install. The setup code is in the Vercel logs: open the tablerunner project in Vercel, choose Logs, and search for "setup code".</p>
+    <p class="hint" style="margin:0">This install has no admin yet. The setup code is in the Vercel logs: open the tablerunner project in Vercel, choose Logs, and search for "setup code". You become the first admin; everyone else gets their own sign-in on the Users screen.</p>
     <label for="setup-code" class="muted">Setup code</label>
     <input id="setup-code" autocomplete="off" required>
-    <label for="setup-team" class="muted">Team password, for hosts and managers (10 characters or more)</label>
-    <input type="password" id="setup-team" autocomplete="new-password" minlength="10" required>
-    <label for="setup-admin" class="muted">Admin password, for settings (10 characters or more, different)</label>
-    <input type="password" id="setup-admin" autocomplete="new-password" minlength="10" required>
-    <button class="primary" type="submit">Set up</button>
+    <label for="setup-name" class="muted">Your name</label>
+    <input id="setup-name" autocomplete="name" required maxlength="80">
+    <label for="setup-email" class="muted">Your email (your sign-in)</label>
+    <input type="email" id="setup-email" autocomplete="username" required>
+    <label for="setup-password" class="muted">Your password (10 characters or more)</label>
+    <input type="password" id="setup-password" autocomplete="new-password" minlength="10" required>
+    <button class="primary" type="submit">Create admin and set up</button>
     <div class="error" id="setup-error"></div>
   </form>
   <form class="panel login" id="login" hidden>
     <h2 style="margin:0">Sign in</h2>
+    <label for="login-email" class="muted">Email</label>
+    <input type="email" id="login-email" autocomplete="username" required>
     <label for="password" class="muted">Password</label>
     <input type="password" id="password" autocomplete="current-password" required>
     <button class="primary" type="submit">Sign in</button>
+    <button type="button" class="linkish" id="login-forgot">Forgotten your password?</button>
+    <div class="hint" id="login-old-admin" hidden>Upgrading from shared passwords: until a named admin exists, the old admin password still works once. <button type="button" id="login-use-old">Use the old admin password</button></div>
     <div class="error" id="login-error"></div>
+  </form>
+  <form class="panel login" id="forgot" hidden>
+    <h2 style="margin:0">Reset your password</h2>
+    <p class="hint" style="margin:0">Enter the email you sign in with. If it has an account, a link to choose a new password arrives within a minute and works for 1 hour.</p>
+    <label for="forgot-email" class="muted">Email</label>
+    <input type="email" id="forgot-email" autocomplete="username" required>
+    <button class="primary" type="submit">Email me a reset link</button>
+    <button type="button" class="linkish" id="forgot-back">Back to sign in</button>
+    <div class="msg" id="forgot-msg" role="status"></div>
+  </form>
+  <form class="panel login" id="link-form" hidden>
+    <h2 style="margin:0" id="link-title">Set your password</h2>
+    <p class="hint" style="margin:0" id="link-who"></p>
+    <div id="link-fields">
+      <label for="link-password" class="muted">New password (10 characters or more)</label>
+      <input type="password" id="link-password" autocomplete="new-password" minlength="10" required style="width:100%;margin:4px 0 10px">
+      <label for="link-confirm" class="muted">Type it again</label>
+      <input type="password" id="link-confirm" autocomplete="new-password" minlength="10" required style="width:100%;margin-top:4px">
+    </div>
+    <button class="primary" type="submit" id="link-submit">Set password and sign in</button>
+    <button type="button" class="linkish" id="link-to-login" hidden>Go to sign in</button>
+    <div class="error" id="link-error"></div>
   </form>
   <section class="panel" id="settings" hidden>
     <div class="toolbar" style="justify-content: space-between; margin-bottom: 12px;">
-      <h2 style="margin:0">Settings</h2>
+      <h2 style="margin:0">Settings: <span id="settings-site"></span></h2>
       <button id="settings-close" type="button">Close</button>
     </div>
     <form id="settings-form" class="settings-grid">
@@ -200,17 +267,9 @@
         <label for="s-client-secret">Client secret</label>
         <input id="s-client-secret" type="password" autocomplete="new-password">
         <div class="hint" id="s-secret-hint"></div>
-        <div class="toolbar"><button type="button" id="s-rotate-key">New encryption key</button></div>
+        <div class="toolbar" id="s-rotate-wrap"><button type="button" id="s-rotate-key">New encryption key</button></div>
         <label for="s-venue-id">Venue ID</label>
         <input id="s-venue-id" autocomplete="off">
-      </fieldset>
-      <fieldset>
-        <legend>Passwords</legend>
-        <label for="s-team">New team password</label>
-        <input id="s-team" type="password" autocomplete="new-password" minlength="10">
-        <label for="s-admin">New admin password</label>
-        <input id="s-admin" type="password" autocomplete="new-password" minlength="10">
-        <div class="hint">Leave blank to keep. Changing either signs everyone else out.</div>
       </fieldset>
       <fieldset class="wide">
         <legend>Floor plan and OpenTable allocation</legend>
@@ -224,6 +283,168 @@
       </div>
     </form>
   </section>
+  <section class="panel" id="admin-panel" hidden>
+    <div class="admin-head">
+      <div><h2 style="margin:0">Admin</h2><div class="hint" id="admin-scope"></div></div>
+      <button id="admin-close" type="button">Close</button>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Admin sections">
+      <button type="button" role="tab" data-tab="admin-overview">Overview <span class="count" id="tab-attention" hidden></span></button>
+      <button type="button" role="tab" data-tab="sites-panel">Clients and sites</button>
+      <button type="button" role="tab" data-tab="users-panel">Users</button>
+      <button type="button" role="tab" data-tab="mail-panel" id="tab-mail">Email</button>
+      <button type="button" role="tab" data-tab="log-panel">Admin log</button>
+    </nav>
+
+  <div class="admin-tab" id="admin-overview" role="tabpanel" hidden>
+    <div class="grid kpis" id="ov-counts"></div>
+    <h3>Needs attention</h3>
+    <div class="list" id="ov-attention" style="max-height:none"></div>
+    <span class="msg" id="ov-msg" role="status"></span>
+    <h3>Recent changes</h3>
+    <ul class="feed" id="ov-recent"></ul>
+  </div>
+
+  <div class="admin-tab" id="sites-panel" role="tabpanel" hidden>
+    <p class="hint" style="margin-top:0">A client is the group (for example Open House). Each site is one venue under it (for example Broadcaster), with its own floor plan, SevenRooms, emails in and alerts.</p>
+    <div class="scroll"><table class="admin-table" id="sites-table"></table></div>
+    <div class="settings-grid" style="margin-top:16px">
+      <form id="client-form">
+        <fieldset>
+          <legend id="client-form-title">Add a client</legend>
+          <label for="client-name">Client name, the group as you bill it</label>
+          <input id="client-name" required maxlength="80">
+          <div class="hint">Then add its sites alongside, and give people access to the whole client on the Users tab.</div>
+          <div class="toolbar">
+            <button class="primary" type="submit" id="client-submit">Add client</button>
+            <button type="button" id="client-cancel" hidden>Cancel</button>
+          </div>
+        </fieldset>
+      </form>
+      <form id="site-form">
+        <fieldset>
+          <legend id="site-form-title">Add a site</legend>
+          <label for="site-client">Client</label>
+          <select id="site-client" required></select>
+          <label for="site-name">Site name, as staff know it</label>
+          <input id="site-name" required maxlength="80">
+          <label for="site-code">Site code (lower-case letters, digits, hyphens)</label>
+          <input id="site-code" required pattern="[a-z0-9\-]{2,40}" autocomplete="off">
+          <div class="hint">The code keys the site's bookings and cannot change later. A site can move to another client at any time. A new site starts in shadow mode on the example floor plan: open its Settings to connect Postmark and paste the real floor plan.</div>
+          <div class="toolbar">
+            <button class="primary" type="submit" id="site-submit">Add site</button>
+            <button type="button" id="site-cancel" hidden>Cancel</button>
+          </div>
+        </fieldset>
+      </form>
+    </div>
+    <span class="msg" id="sites-msg" role="status"></span>
+  </div>
+
+  <div class="admin-tab" id="users-panel" role="tabpanel" hidden>
+    <div class="scroll"><table class="admin-table" id="users-table"></table></div>
+    <form id="user-form" class="settings-grid" style="margin-top:16px">
+      <fieldset class="wide">
+        <legend id="user-form-title">Add a user</legend>
+        <div class="settings-grid">
+          <div style="display:grid;gap:8px"><label for="u-name">Name</label><input id="u-name" required maxlength="80"></div>
+          <div style="display:grid;gap:8px"><label for="u-email">Email (their sign-in)</label><input id="u-email" type="email" required autocomplete="off"></div>
+          <div style="display:grid;gap:8px"><label for="u-role">Role</label><select id="u-role"></select></div>
+        </div>
+        <div id="u-how-wrap" style="display:grid;gap:6px">
+          <label class="choice"><input type="radio" name="u-how" value="invite" id="u-how-invite"> <span>Email an invite. They choose their own password from a link that works once and expires in 7 days. <span class="hint" id="u-invite-off"></span></span></label>
+          <label class="choice"><input type="radio" name="u-how" value="password" id="u-how-password"> <span>Set a password now and give it to them yourself, in person or by phone.</span></label>
+        </div>
+        <div style="display:grid;gap:8px;max-width:420px" id="u-password-wrap"><label for="u-password" id="u-password-label">Password (10 characters or more)</label><input id="u-password" type="password" autocomplete="new-password" minlength="10"></div>
+        <div id="u-sites-wrap">
+          <label>Access: a whole client covers every site it has now and adds later</label>
+          <div class="site-checks" id="u-sites"></div>
+        </div>
+        <div class="hint" id="u-role-hint"></div>
+        <div class="toolbar">
+          <button class="primary" type="submit" id="user-submit">Add user</button>
+          <button type="button" id="user-cancel" hidden>Cancel</button>
+        </div>
+        <span class="msg" id="users-msg" role="status"></span>
+      </fieldset>
+    </form>
+  </div>
+
+  <div class="admin-tab" id="mail-panel" role="tabpanel" hidden>
+    <div class="settings-grid">
+      <form id="mail-form">
+        <fieldset>
+          <legend>Postmark sending</legend>
+          <div id="mail-status"></div>
+          <label for="m-token" id="m-token-label">Postmark Server API token</label>
+          <input id="m-token" type="password" autocomplete="off" placeholder="From the Postmark server's API Tokens tab">
+          <label for="m-from">From address</label>
+          <input id="m-from" type="email" required placeholder="tablerunner@williamsstanley.co">
+          <label for="m-from-name">From name</label>
+          <input id="m-from-name" maxlength="80" placeholder="Table Runner">
+          <label for="m-app">Address in emails (the public Table Runner address)</label>
+          <input id="m-app" type="url" placeholder="https://">
+          <div class="toolbar">
+            <button class="primary" type="submit">Save</button>
+            <button type="button" id="m-test">Send me a test</button>
+            <button type="button" id="m-disconnect" hidden>Disconnect</button>
+          </div>
+          <span class="msg" id="mail-msg" role="status"></span>
+          <details>
+            <summary class="hint">How to set this up in Postmark</summary>
+            <ol class="hint" style="padding-left:18px;margin:6px 0 0">
+              <li>In Postmark, open Sender Signatures and verify the From address, or better the whole domain (add the DKIM and Return-Path records it gives you).</li>
+              <li>Open the server you use for Table Runner (the inbound one is fine), choose API Tokens, and copy the Server API token.</li>
+              <li>Paste it here with the From address and save. Then send yourself a test.</li>
+              <li>Set the address in emails to the public Table Runner address, not one behind Vercel's login, or invite links will not open for staff.</li>
+            </ol>
+          </details>
+        </fieldset>
+      </form>
+      <fieldset>
+        <legend>What people receive</legend>
+        <div class="toolbar">
+          <button type="button" data-preview="invite">Invite</button>
+          <button type="button" data-preview="reset">Password reset</button>
+        </div>
+        <div class="hint">Subject: <strong id="preview-subject"></strong></div>
+        <iframe class="preview-frame" id="mail-preview" title="Email preview" sandbox></iframe>
+      </fieldset>
+    </div>
+  </div>
+
+  <div class="admin-tab" id="log-panel" role="tabpanel" hidden>
+    <div class="log-filters">
+      <label for="log-kind" class="hint" style="align-self:center">Show</label>
+      <select id="log-kind">
+        <option value="">Everything</option><option value="user">Users</option><option value="site">Sites</option>
+        <option value="client">Clients</option><option value="settings">Site settings</option><option value="mail">Email</option><option value="setup">Setup</option>
+      </select>
+      <input id="log-search" type="search" placeholder="Search by name, email or site" aria-label="Search the admin log">
+    </div>
+    <ul class="feed" id="audit"></ul>
+  </div>
+  </section>
+
+  <section class="panel" id="account-panel" hidden>
+    <div class="toolbar" style="justify-content: space-between; margin-bottom: 12px;">
+      <h2 style="margin:0">My account</h2>
+      <button id="account-close" type="button">Close</button>
+    </div>
+    <form id="account-form" class="settings-grid">
+      <fieldset>
+        <legend>Change my password</legend>
+        <div class="hint" id="account-who"></div>
+        <label for="a-current">Current password</label>
+        <input id="a-current" type="password" autocomplete="current-password" required>
+        <label for="a-new">New password (10 characters or more)</label>
+        <input id="a-new" type="password" autocomplete="new-password" minlength="10" required>
+        <div class="toolbar"><button class="primary" type="submit">Change password</button></div>
+        <span class="msg" id="account-msg" role="status"></span>
+      </fieldset>
+    </form>
+  </section>
+
   <div id="demo"></div>
   <section class="grid status" id="status"></section>
 
@@ -296,6 +517,13 @@ const api = async (path, opts = {}) => {
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
   return r.json();
 };
+// The site this browser is looking at. The server picks the user's first
+// site when none is set, and refuses one the user may not see.
+let site = null;
+try { site = localStorage.getItem('tr-site'); } catch {}
+const setSite = (id) => { site = id; try { id ? localStorage.setItem('tr-site', id) : localStorage.removeItem('tr-site'); } catch {} };
+const withSite = (path) => site ? `${path}${path.includes('?') ? '&' : '?'}site=${encodeURIComponent(site)}` : path;
+let me = null;
 const fmtDay = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 const fmtAt = (s) => s ? s.replace('T', ' ') : 'never';
 const shift = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
@@ -312,13 +540,16 @@ function renderStatus(s) {
   today = s.now.slice(0, 10);
   if (!selected) selected = today;
   $('clock').textContent = `London ${s.now.slice(11)}`;
-  $('venue').textContent = s.venueName ? `${s.venueName}: ` : '';
+  $('venue').textContent = s.venueName ? `${s.client?.name ? `${s.client.name} / ` : ''}${s.venueName}: ` : '';
   document.title = s.venueName ? `Table Runner: ${s.venueName}` : 'Table Runner';
   $('demo').innerHTML = s.mode?.demo
     ? `<div class="banner">Demo data. Every booking and guest on this page is synthetic. No vendor system is connected.${s.mode.note ? ' ' + esc(s.mode.note) : ''}</div>`
     : !s.mode?.sevenRooms?.live
       ? '<div class="banner">Shadow mode. OpenTable bookings are processed and shown here, but nothing is written to SevenRooms. Hosts keep working exactly as they do today.</div>'
       : '';
+  if (s.user?.kind === 'legacy') {
+    $('demo').innerHTML += '<div class="banner">You are signed in with the old shared admin password, which is being retired. Open Users and add yourself as an admin with your own email. The old password stops working the moment you do, and you sign back in with your email.</div>';
+  }
   const rec = s.lastReconciliation;
   const m = (k) => s.mode[k] ?? { live: false, value: 'Unknown', detail: '' };
   const conn = (label, k) => tile(label, m(k).value, m(k).detail, m(k).live ? 'ok' : 'warn');
@@ -420,7 +651,7 @@ function renderAlerts(list) {
   $('alerts').innerHTML = list.length ? list.map((a) => `
     <div class="alert ${esc(a.severity)}">
       <div class="row"><span class="code ${a.severity === 'high' ? 'bad' : 'warn'}">${esc(a.code.replace(/_/g, ' '))}</span>
-        <button data-ack="${a.id}">Acknowledge</button></div>
+        ${me && !me.canAct ? '' : `<button data-ack="${a.id}">Acknowledge</button>`}</div>
       <div>${esc(a.message)}</div>
       ${a.issues ? `<ul>${a.issues.slice(0, 8).map((i) => `<li>${esc(i.confirmation)}: ${esc(i.code.replace(/_/g, ' '))}${i.field ? ` (${esc(i.field)} OpenTable ${esc(i.openTable)}, SevenRooms ${esc(i.sevenRooms)})` : ''}</li>`).join('')}</ul>` : ''}
       ${a.tables ? `<ul>${a.tables.map((t) => `<li>${esc(t.date)} ${esc(t.sitting)}: ${esc(t.table)}</li>`).join('')}</ul>` : ''}
@@ -428,7 +659,7 @@ function renderAlerts(list) {
     </div>`).join('') : '<div class="empty">No open alerts.</div>';
   document.querySelectorAll('[data-ack]').forEach((b) => b.onclick = async () => {
     b.disabled = true;
-    await api(`/api/alerts/${b.dataset.ack}/ack`, { method: 'POST' });
+    await api(withSite(`/api/alerts/${b.dataset.ack}/ack`), { method: 'POST' });
     refresh();
   });
 }
@@ -438,6 +669,9 @@ function renderActivity(items) {
 }
 
 function showLogin(message) {
+  $('forgot').hidden = $('link-form').hidden = true;
+  $('login-email').disabled = false;
+  $('login-email').required = true;
   document.body.dataset.auth = 'needed';
   $('login').hidden = false;
   $('login-error').textContent = message || '';
@@ -453,7 +687,8 @@ function showSetup() {
 $('login').onsubmit = async (e) => {
   e.preventDefault();
   try {
-    const r = await api('/api/login', { method: 'POST', json: { password: $('password').value } });
+    const email = $('login-email').value.trim();
+    const r = await api('/api/login', { method: 'POST', json: email ? { email, password: $('password').value } : { password: $('password').value } });
     setToken(r.token);
     $('password').value = '';
     refresh();
@@ -462,16 +697,24 @@ $('login').onsubmit = async (e) => {
   }
 };
 
+// Only offered while an upgraded install has no named admin yet.
+$('login-use-old').onclick = () => {
+  const email = $('login-email');
+  email.required = false; email.value = ''; email.disabled = true;
+  $('login-old-admin').hidden = true;
+  $('password').focus();
+};
+
 $('setup').onsubmit = async (e) => {
   e.preventDefault();
   try {
     const r = await api('/api/setup', { method: 'POST', json: {
-      code: $('setup-code').value, teamPassword: $('setup-team').value, adminPassword: $('setup-admin').value,
+      code: $('setup-code').value, name: $('setup-name').value, email: $('setup-email').value, password: $('setup-password').value,
     } });
     setToken(r.token);
     $('setup').hidden = true;
     await refresh();
-    openSettings('Set up. Copy the webhook address into Postmark, then paste in the real floor plan.');
+    openSettings('Set up, and you are the admin. Connect Postmark and paste the real floor plan here, then add your team on the Users screen.');
   } catch (err) {
     $('setup-error').textContent = err.message;
   }
@@ -480,7 +723,8 @@ $('setup').onsubmit = async (e) => {
 $('btn-signout').onclick = async () => {
   try { await api('/api/logout', { method: 'POST' }); } catch {}
   setToken(null);
-  $('settings').hidden = true;
+  me = null;
+  closePanels();
   showLogin('Signed out.');
 };
 
@@ -489,6 +733,7 @@ let loadedFloor = '';
 const msg = (text, ok) => { $('settings-msg').textContent = text; $('settings-msg').className = `msg ${ok ? 'ok' : 'bad'}`; };
 
 function fillSettings(s) {
+  $('settings-site').textContent = s.site ? `${s.site.clientName ? `${s.site.clientName} / ` : ''}${s.site.name} (${s.site.id})` : '';
   $('s-inbound').value = s.inboundUrl;
   const pm = s.postmark;
   $('pm-status').innerHTML = pm.connected
@@ -519,14 +764,15 @@ function fillSettings(s) {
   $('s-secret-hint').textContent = s.sevenRooms.clientSecretProblem
     ? `The saved client secret cannot be used: ${s.sevenRooms.clientSecretProblem}.`
     : `Stored encrypted and never shown again. Encryption key created ${keyDate}.`;
-  $('s-team').value = ''; $('s-admin').value = '';
+  $('s-rotate-wrap').hidden = !me?.isAdmin;
   loadedFloor = JSON.stringify(s.floorPlan, null, 2);
   $('s-floor').value = loadedFloor;
 }
 
 async function openSettings(note) {
   try {
-    fillSettings(await api('/api/settings'));
+    fillSettings(await api(withSite('/api/settings')));
+    closePanels();
     $('settings').hidden = false;
     msg(note || '', true);
     $('settings').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -538,7 +784,7 @@ async function openSettings(note) {
 
 async function saveSettings(patch) {
   try {
-    const r = await api('/api/settings', { method: 'PUT', json: patch });
+    const r = await api(withSite('/api/settings'), { method: 'PUT', json: patch });
     if (r.token) setToken(r.token);
     fillSettings(r);
     msg(r.changed.length ? `Saved: ${r.changed.join(', ')}.` : 'No changes to save.', true);
@@ -560,8 +806,6 @@ $('settings-form').onsubmit = (e) => {
     sevenRooms: { mode: $('s-mode').value, clientId: $('s-client-id').value, venueId: $('s-venue-id').value },
   };
   if ($('s-client-secret').value) patch.sevenRooms.clientSecret = $('s-client-secret').value;
-  if ($('s-team').value) patch.teamPassword = $('s-team').value;
-  if ($('s-admin').value) patch.adminPassword = $('s-admin').value;
   if ($('s-floor').value.trim() !== loadedFloor.trim()) {
     try { patch.floorPlan = JSON.parse($('s-floor').value); }
     catch (err) { return msg(`Floor plan is not valid JSON: ${err.message}`, false); }
@@ -598,6 +842,21 @@ $('s-pm-disconnect').onclick = async () => {
   await saveSettings({ disconnectPostmark: true });
 };
 
+let rotateArmed = false;
+$('s-rotate-key').onclick = async () => {
+  if (!rotateArmed) {
+    rotateArmed = true;
+    $('s-rotate-key').textContent = 'Confirm new encryption key';
+    msg('Every site\'s client secret will be re-encrypted under a new key and the old key deleted. Click again to confirm.', false);
+    setTimeout(() => { rotateArmed = false; $('s-rotate-key').textContent = 'New encryption key'; }, 8000);
+    return;
+  }
+  rotateArmed = false;
+  $('s-rotate-key').textContent = 'New encryption key';
+  const r = await saveSettings({ rotateEncryptionKey: true });
+  if (r) msg('New encryption key created. Every saved client secret was re-encrypted under it.', true);
+};
+
 let regenArmed = false;
 $('s-regenerate').onclick = async () => {
   if (!regenArmed) {
@@ -613,37 +872,673 @@ $('s-regenerate').onclick = async () => {
   if (r) msg('New key created. Paste the new address into Postmark now.', true);
 };
 
-let rotateArmed = false;
-$('s-rotate-key').onclick = async () => {
-  if (!rotateArmed) {
-    rotateArmed = true;
-    $('s-rotate-key').textContent = 'Confirm new encryption key';
-    msg('The client secret will be re-encrypted under a new key and the old key deleted. Click again to confirm.', false);
-    setTimeout(() => { rotateArmed = false; $('s-rotate-key').textContent = 'New encryption key'; }, 8000);
-    return;
+// ---- Who is signed in, and the site switcher
+async function loadMe(status) {
+  me = status.user ?? { canAct: true, isAdmin: status.role === 'admin', kind: status.role ? 'shared' : 'demo', name: '' };
+  let sites = [];
+  if (!window.tableRunnerApi && status.role) {
+    try { sites = (await api('/api/me')).sites; } catch {}
   }
-  rotateArmed = false;
-  $('s-rotate-key').textContent = 'New encryption key';
-  const r = await saveSettings({ rotateEncryptionKey: true });
-  if (r) msg('New encryption key created. The client secret was re-encrypted under it.', true);
+  // Grouped by client, so a group with many venues stays easy to scan.
+  const groups = new Map();
+  for (const x of sites) (groups.get(x.clientName) ?? groups.set(x.clientName, []).get(x.clientName)).push(x);
+  const opt = (x) => `<option value="${esc(x.id)}">${esc(x.name)}${x.live ? '' : ' (archived)'}</option>`;
+  const sel = $('site-select');
+  sel.innerHTML = groups.size > 1
+    ? [...groups].map(([client, list]) => `<optgroup label="${esc(client)}">${list.map(opt).join('')}</optgroup>`).join('')
+    : sites.map(opt).join('');
+  sel.value = status.site ?? '';
+  sel.hidden = $('site-select-label').hidden = sites.length < 2;
+  $('btn-settings').hidden = $('btn-admin').hidden = !me.canManage;
+  $('tab-mail').hidden = !me.isAdmin;
+  $('btn-account').hidden = me.kind !== 'user';
+  $('btn-signout').hidden = !status.role;
+  $('btn-reconcile').hidden = $('btn-release').hidden = !me.canAct;
+  $('who-am-i').textContent = status.role ? `${me.name}${me.role ? `, ${me.role.replace('_', ' ')}` : ''}` : '';
+}
+
+$('site-select').onchange = (e) => {
+  setSite(e.target.value);
+  selected = null;
+  if (!$('settings').hidden) openSettings();
+  refresh();
+};
+
+function closePanels() {
+  for (const id of ['settings', 'admin-panel', 'account-panel']) $(id).hidden = true;
+}
+
+// Admin tabs live inside one panel; everything else is its own panel.
+const ADMIN_TABS = ['admin-overview', 'sites-panel', 'users-panel', 'mail-panel', 'log-panel'];
+function showPanel(id) {
+  const tab = ADMIN_TABS.includes(id);
+  const wasOpen = tab && !$('admin-panel').hidden;
+  closePanels();
+  if (tab) {
+    $('admin-panel').hidden = false;
+    for (const t of ADMIN_TABS) $(t).hidden = t !== id;
+    document.querySelectorAll('#admin-panel [role="tab"]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === id)));
+  } else $(id).hidden = false;
+  if (!wasOpen) (tab ? $('admin-panel') : $(id)).scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+const note = (id, text, ok) => { $(id).textContent = text; $(id).className = `msg ${ok ? 'ok' : 'bad'}`; };
+const fmtWhen = (s) => s ? s.replace('T', ' ') : 'Never';
+
+// Two clicks for anything destructive: the first arms, the second acts.
+function armed(btn, label, confirmLabel, run) {
+  if (btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = label; return run(); }
+  btn.dataset.armed = '1';
+  btn.textContent = confirmLabel;
+  setTimeout(() => { if (btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = label; } }, 8000);
+}
+
+// ---- Clients and sites (admins; client admins for their own clients)
+let clientsCache = [];
+let sitesCache = [];
+let editingSite = null;
+let editingClient = null;
+
+async function openSites(message) {
+  try {
+    [clientsCache, sitesCache] = await Promise.all([api('/api/clients').then((r) => r.clients), api('/api/sites').then((r) => r.sites)]);
+    renderSites();
+    resetSiteForm();
+    resetClientForm();
+    showPanel('sites-panel');
+    if (message) note('sites-msg', message, true);
+  } catch (err) {
+    if (err instanceof AuthRequired) return showLogin('');
+    $('demo').innerHTML = `<div class="banner">${esc(err.message)}</div>`;
+  }
+}
+
+function renderSites() {
+  const head = `<tr><th>Client / site</th><th>Code</th><th>Status</th><th>Floor plan</th><th>SevenRooms</th><th>Emails in</th><th>Alerts to</th><th></th></tr>`;
+  const clientRow = (c) => `<tr class="client-row">
+      <td><strong>${esc(c.name)}</strong> <span class="muted">${c.activeSites} of ${c.sites} site${c.sites === 1 ? '' : 's'} active</span></td>
+      <td></td>
+      <td>${c.active ? '<span class="pill ok">Active</span>' : '<span class="pill">Archived</span>'}</td>
+      <td colspan="4"></td>
+      <td><div class="toolbar">
+        ${c.canManage ? `<button data-client-edit="${esc(c.id)}">Rename</button>` : ''}
+        ${c.canManage ? `<button data-client-addsite="${esc(c.id)}">Add site</button>` : ''}
+        ${me?.isAdmin ? `<button data-client-active="${esc(c.id)}">${c.active ? 'Archive' : 'Reopen'}</button>` : ''}
+        ${me?.isAdmin && !c.sites ? `<button data-client-delete="${esc(c.id)}">Delete</button>` : ''}
+      </div></td></tr>`;
+  const siteRow = (x) => `<tr class="site-row">
+      <td><strong>${esc(x.name)}</strong>${x.id === site ? ' <span class="pill ok">viewing</span>' : ''}</td>
+      <td><code>${esc(x.id)}</code></td>
+      <td>${x.live ? '<span class="pill ok">Active</span>' : x.active ? '<span class="pill">Client archived</span>' : '<span class="pill">Archived</span>'}</td>
+      <td>${x.example ? '<span class="pill warn">Example</span>' : `${x.tables} tables, ${x.sittings} sittings`}</td>
+      <td>${x.sevenRoomsMode === 'live' ? '<span class="pill ok">Live</span>' : '<span class="pill warn">Shadow</span>'}</td>
+      <td>${x.postmarkConnected ? '<span class="pill ok">Postmark</span>' : '<span class="pill warn">Not connected</span>'}</td>
+      <td>${x.alertWebhook ? 'Dashboard and webhook' : 'Dashboard only'}</td>
+      <td><div class="toolbar">
+        <button data-site-view="${esc(x.id)}">Dashboard</button>
+        <button data-site-settings="${esc(x.id)}">Settings</button>
+        <button data-site-edit="${esc(x.id)}">Edit</button>
+        <button data-site-active="${esc(x.id)}">${x.active ? 'Archive' : 'Reopen'}</button>
+      </div></td></tr>`;
+  $('sites-table').innerHTML = head + (clientsCache.length
+    ? clientsCache.map((c) => clientRow(c) + sitesCache.filter((x) => x.clientId === c.id).map(siteRow).join('')).join('')
+    : '<tr><td colspan="8" class="empty">No clients yet.</td></tr>');
+
+  const byId = (list, id) => list.find((y) => y.id === id);
+  document.querySelectorAll('[data-site-view]').forEach((b) => b.onclick = () => { setSite(b.dataset.siteView); selected = null; closePanels(); refresh(); });
+  document.querySelectorAll('[data-site-settings]').forEach((b) => b.onclick = () => { setSite(b.dataset.siteSettings); refresh(); openSettings(); });
+  document.querySelectorAll('[data-site-edit]').forEach((b) => b.onclick = () => {
+    const x = byId(sitesCache, b.dataset.siteEdit);
+    editingSite = x.id;
+    $('site-form-title').textContent = `Edit ${x.name}`;
+    $('site-client').value = x.clientId;
+    $('site-name').value = x.name;
+    $('site-code').value = x.id;
+    $('site-code').disabled = true;
+    $('site-submit').textContent = 'Save site';
+    $('site-cancel').hidden = false;
+    $('site-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    $('site-name').focus();
+  });
+  document.querySelectorAll('[data-site-active]').forEach((b) => b.onclick = () => {
+    const x = byId(sitesCache, b.dataset.siteActive);
+    if (x.active) note('sites-msg', `Archiving ${x.name} stops its emails, releases and reconciliation, and hides it from managers and viewers. Bookings are kept. Click again to confirm.`, false);
+    armed(b, x.active ? 'Archive' : 'Reopen', x.active ? 'Confirm archive' : 'Confirm reopen', async () => {
+      try {
+        await api(`/api/sites/${encodeURIComponent(x.id)}`, { method: 'PUT', json: { active: !x.active } });
+        await openSites(`${x.name} ${x.active ? 'archived' : 'reopened'}.`);
+        refresh();
+      } catch (err) { note('sites-msg', err.message, false); }
+    });
+  });
+  document.querySelectorAll('[data-client-edit]').forEach((b) => b.onclick = () => {
+    const c = byId(clientsCache, b.dataset.clientEdit);
+    editingClient = c.id;
+    $('client-form-title').textContent = `Rename ${c.name}`;
+    $('client-name').value = c.name;
+    $('client-submit').textContent = 'Save name';
+    $('client-cancel').hidden = false;
+    $('client-form').hidden = false;
+    $('client-name').focus();
+  });
+  document.querySelectorAll('[data-client-addsite]').forEach((b) => b.onclick = () => {
+    resetSiteForm();
+    $('site-client').value = b.dataset.clientAddsite;
+    $('site-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    $('site-name').focus();
+  });
+  document.querySelectorAll('[data-client-active]').forEach((b) => b.onclick = () => {
+    const c = byId(clientsCache, b.dataset.clientActive);
+    if (c.active) note('sites-msg', `Archiving ${c.name} takes all ${c.sites} of its sites offline: no emails, releases or reconciliation. Bookings are kept. Click again to confirm.`, false);
+    armed(b, c.active ? 'Archive' : 'Reopen', c.active ? 'Confirm archive' : 'Confirm reopen', async () => {
+      try {
+        await api(`/api/clients/${encodeURIComponent(c.id)}`, { method: 'PUT', json: { active: !c.active } });
+        await openSites(`${c.name} ${c.active ? 'archived' : 'reopened'}.`);
+        refresh();
+      } catch (err) { note('sites-msg', err.message, false); }
+    });
+  });
+  document.querySelectorAll('[data-client-delete]').forEach((b) => b.onclick = () => {
+    const c = byId(clientsCache, b.dataset.clientDelete);
+    note('sites-msg', `Delete ${c.name}? Users lose access to it, and anyone left with no access is disabled. Click again to confirm.`, false);
+    armed(b, 'Delete', 'Confirm delete', async () => {
+      try {
+        await api(`/api/clients/${encodeURIComponent(c.id)}`, { method: 'DELETE' });
+        await openSites(`${c.name} deleted.`);
+      } catch (err) { note('sites-msg', err.message, false); }
+    });
+  });
+}
+
+function resetClientForm() {
+  editingClient = null;
+  $('client-form').hidden = !me?.isAdmin;
+  $('client-form-title').textContent = 'Add a client';
+  $('client-name').value = '';
+  $('client-submit').textContent = 'Add client';
+  $('client-cancel').hidden = true;
+}
+
+function resetSiteForm() {
+  editingSite = null;
+  const mine = clientsCache.filter((c) => c.canManage);
+  $('site-form').hidden = !mine.length;
+  $('site-client').innerHTML = mine.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}${c.active ? '' : ' (archived)'}</option>`).join('');
+  $('site-form-title').textContent = 'Add a site';
+  $('site-name').value = '';
+  $('site-code').value = '';
+  $('site-code').disabled = false;
+  delete $('site-code').dataset.touched;
+  $('site-submit').textContent = 'Add site';
+  $('site-cancel').hidden = true;
+  note('sites-msg', '', true);
+}
+
+const slugify = (v) => v.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+// Suggest a code from the name until the user types one of their own.
+$('site-name').oninput = () => {
+  if (editingSite || $('site-code').dataset.touched) return;
+  $('site-code').value = slugify($('site-name').value);
+};
+$('site-code').oninput = () => { $('site-code').dataset.touched = '1'; };
+$('site-cancel').onclick = resetSiteForm;
+$('client-cancel').onclick = resetClientForm;
+$('site-form').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    if (editingSite) {
+      await api(`/api/sites/${encodeURIComponent(editingSite)}`, { method: 'PUT', json: { name: $('site-name').value, clientId: $('site-client').value } });
+      await openSites('Site saved.');
+    } else {
+      const x = await api('/api/sites', { method: 'POST', json: { id: $('site-code').value.trim(), name: $('site-name').value, clientId: $('site-client').value } });
+      await openSites(`${x.name} added to ${x.clientName}. Open its Settings to connect Postmark and paste the real floor plan. Anyone with access to the whole of ${x.clientName} can already see it.`);
+    }
+    refresh();
+  } catch (err) { note('sites-msg', err.message, false); }
+};
+$('client-form').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    if (editingClient) {
+      await api(`/api/clients/${encodeURIComponent(editingClient)}`, { method: 'PUT', json: { name: $('client-name').value } });
+      await openSites('Client renamed.');
+    } else {
+      const c = await api('/api/clients', { method: 'POST', json: { name: $('client-name').value } });
+      await openSites(`${c.name} added. Now add its sites.`);
+      $('site-client').value = c.id;
+      $('site-name').focus();
+    }
+    refresh();
+  } catch (err) { note('sites-msg', err.message, false); }
+};
+
+
+// ---- Users (admins; client admins for users inside their clients)
+let usersCache = { users: [], sites: [], clients: [], roles: {}, canGrantAll: false };
+let editingUser = null;
+
+async function openUsers(message) {
+  try {
+    usersCache = await api('/api/users');
+    renderUsers();
+    resetUserForm();
+    showPanel('users-panel');
+    if (message) note('users-msg', message, true);
+  } catch (err) {
+    if (err instanceof AuthRequired) return showLogin('');
+    $('demo').innerHTML = `<div class="banner">${esc(err.message)}</div>`;
+  }
+}
+
+const siteName = (id) => usersCache.sites.find((x) => x.id === id)?.name ?? id;
+const clientName = (id) => usersCache.clients.find((x) => x.id === id)?.name ?? id;
+const roleTone = { admin: 'bad', client_admin: 'warn', manager: 'ok', viewer: '' };
+const roleLabel = (r) => ({ admin: 'Admin', client_admin: 'Client admin', manager: 'Manager', viewer: 'Viewer' }[r] ?? r);
+function accessText(u) {
+  if (u.role === 'admin' || u.sites.includes('*')) return 'Every client and site';
+  return [
+    ...u.clients.map((id) => `<span class="pill ok">All of ${esc(clientName(id))}</span>`),
+    ...u.sites.map((id) => `<span class="pill">${esc(siteName(id))}</span>`),
+  ].join('') || '<span class="muted">None</span>';
+}
+
+function renderUsers() {
+  const rows = usersCache.users.slice().sort((a, b) => a.name.localeCompare(b.name));
+  $('users-table').innerHTML = `<tr><th>Name</th><th>Email</th><th>Role</th><th>Access</th><th>Status</th><th>Last sign-in</th><th></th></tr>`
+    + (rows.length ? rows.map((u) => `<tr>
+      <td><strong>${esc(u.name)}</strong></td>
+      <td>${esc(u.email)}</td>
+      <td><span class="pill ${roleTone[u.role]}">${esc(roleLabel(u.role))}</span></td>
+      <td>${accessText(u)}</td>
+      <td>${!u.active ? '<span class="pill">Disabled</span>' : u.invited ? `<span class="pill warn">Invited</span><div class="hint">${esc(fmtWhen(u.invitedAt))}</div>` : '<span class="pill ok">Active</span>'}</td>
+      <td class="muted">${esc(fmtWhen(u.lastSignInAt))}</td>
+      <td><div class="toolbar">
+        <button data-user-edit="${esc(u.id)}">Edit</button>
+        ${u.active && usersCache.mailConnected ? `<button data-user-link="${esc(u.id)}">${u.invited ? 'Resend invite' : 'Send reset link'}</button>` : ''}
+        <button data-user-active="${esc(u.id)}">${u.active ? 'Disable' : 'Enable'}</button>
+        <button data-user-delete="${esc(u.id)}">Delete</button>
+      </div></td></tr>`).join('')
+      : '<tr><td colspan="7" class="empty">No users you manage yet. Add people below: each gets their own sign-in, role and access.</td></tr>');
+  document.querySelectorAll('[data-user-edit]').forEach((b) => b.onclick = () => editUser(usersCache.users.find((u) => u.id === b.dataset.userEdit)));
+  document.querySelectorAll('[data-user-link]').forEach((b) => b.onclick = async () => {
+    const u = usersCache.users.find((x) => x.id === b.dataset.userLink);
+    b.disabled = true;
+    try {
+      const r = await api(`/api/users/${u.id}/link`, { method: 'POST' });
+      await openUsers(r.sent === 'invite' ? `New invite sent to ${u.email}. Any earlier invite link no longer works.` : `Password reset link sent to ${u.email}. It expires in 1 hour.`);
+    } catch (err) { b.disabled = false; note('users-msg', err.message, false); }
+  });
+  document.querySelectorAll('[data-user-active]').forEach((b) => b.onclick = () => {
+    const u = usersCache.users.find((x) => x.id === b.dataset.userActive);
+    const go = async () => {
+      try {
+        await api(`/api/users/${u.id}`, { method: 'PUT', json: { active: !u.active } });
+        await openUsers(`${u.name} ${u.active ? 'disabled and signed out' : 'enabled'}.`);
+      } catch (err) { note('users-msg', err.message, false); }
+    };
+    if (!u.active) return go();
+    armed(b, 'Disable', 'Confirm disable', go);
+  });
+  document.querySelectorAll('[data-user-delete]').forEach((b) => b.onclick = () => {
+    const u = usersCache.users.find((x) => x.id === b.dataset.userDelete);
+    note('users-msg', `Deleting ${u.name} removes their sign-in for good. Disable instead if they may come back. Click again to confirm.`, false);
+    armed(b, 'Delete', 'Confirm delete', async () => {
+      try {
+        await api(`/api/users/${u.id}`, { method: 'DELETE' });
+        await openUsers(`${u.name} deleted.`);
+      } catch (err) { note('users-msg', err.message, false); }
+    });
+  });
+}
+
+// Access is chosen per client: tick the client for all its sites (now and
+// later), or tick single sites under it. Admins can also grant everything.
+function renderUserSites(selectedSites, selectedClients = []) {
+  const all = selectedSites.includes('*');
+  const clientAdmin = $('u-role').value === 'client_admin';
+  const groups = usersCache.clients.map((c) => {
+    const whole = all || selectedClients.includes(c.id);
+    const sites = usersCache.sites.filter((x) => x.clientId === c.id);
+    return `<div class="access-group">
+      <label class="client-check"><input type="checkbox" data-client="${esc(c.id)}" ${whole ? 'checked' : ''} ${all ? 'disabled' : ''}> All of ${esc(c.name)}${c.active ? '' : ' (archived)'}</label>
+      ${clientAdmin ? '' : `<div class="site-checks">${sites.map((x) => `<label><input type="checkbox" data-site="${esc(x.id)}" ${whole || selectedSites.includes(x.id) ? 'checked' : ''} ${whole ? 'disabled' : ''}> ${esc(x.name)}${x.live ? '' : ' (archived)'}</label>`).join('') || '<span class="muted">No sites yet</span>'}</div>`}
+    </div>`;
+  }).join('');
+  $('u-sites').innerHTML = (usersCache.canGrantAll && !clientAdmin
+    ? `<div class="access-group"><label class="client-check"><input type="checkbox" data-all ${all ? 'checked' : ''}> Every client and site, including future ones</label></div>` : '')
+    + (groups || '<div class="empty">No clients yet. Add one on the Clients and sites screen.</div>');
+  $('u-sites').style.display = 'block';
+  const sync = () => {
+    const everything = $('u-sites').querySelector('[data-all]')?.checked;
+    $('u-sites').querySelectorAll('[data-client]').forEach((c) => {
+      c.disabled = everything; if (everything) c.checked = true;
+      c.closest('.access-group').querySelectorAll('[data-site]').forEach((x) => { x.disabled = c.checked; if (c.checked) x.checked = true; });
+    });
+  };
+  $('u-sites').querySelectorAll('[data-all], [data-client]').forEach((c) => c.onchange = sync);
+}
+
+function readAccess() {
+  const box = $('u-sites');
+  if (box.querySelector('[data-all]')?.checked) return { sites: ['*'], clients: [] };
+  const clients = [...box.querySelectorAll('[data-client]:checked')].map((c) => c.dataset.client);
+  const sites = [...box.querySelectorAll('[data-site]:checked:not(:disabled)')].map((c) => c.dataset.site);
+  return { sites, clients };
+}
+
+function syncRoleUi() {
+  const role = $('u-role').value;
+  const keep = $('u-sites').children.length ? readAccess() : { sites: [], clients: [] };
+  $('u-sites-wrap').hidden = role === 'admin';
+  if (role !== 'admin') renderUserSites(keep.sites, keep.clients);
+  $('u-role-hint').textContent = usersCache.roles[role] ?? '';
+}
+
+function resetUserForm() {
+  editingUser = null;
+  $('user-form-title').textContent = 'Add a user';
+  $('u-role').innerHTML = Object.keys(usersCache.roles).map((r) => `<option value="${r}">${roleLabel(r)}</option>`).join('');
+  $('u-role').value = 'manager';
+  $('u-name').value = ''; $('u-email').value = ''; $('u-password').value = '';
+  $('u-how-wrap').hidden = false;
+  $('u-how-invite').disabled = !usersCache.mailConnected;
+  $('u-invite-off').textContent = usersCache.mailConnected ? '' : (me?.isAdmin ? 'Set up email on the Email tab first.' : 'An admin needs to set up email first.');
+  (usersCache.mailConnected ? $('u-how-invite') : $('u-how-password')).checked = true;
+  syncHowUi();
+  $('u-password-label').textContent = 'Password (10 characters or more). Give it to them in person or by phone, not by email.';
+  syncHowUi();
+  $('user-cancel').hidden = true;
+  renderUserSites(site && usersCache.sites.some((x) => x.id === site) ? [site] : []);
+  syncRoleUi();
+  note('users-msg', '', true);
+}
+
+function editUser(u) {
+  resetUserForm();
+  editingUser = u.id;
+  $('user-form-title').textContent = `Edit ${u.name}`;
+  $('u-name').value = u.name; $('u-email').value = u.email; $('u-role').value = u.role;
+  $('u-how-wrap').hidden = true;
+  $('u-password-wrap').hidden = false;
+  $('u-password').required = false;
+  $('u-password-label').textContent = u.invited ? 'Password (leave blank to let them set their own from the invite)' : 'New password (leave blank to keep). Setting one signs them out.';
+  $('user-submit').textContent = 'Save changes';
+  $('user-cancel').hidden = false;
+  $('u-sites-wrap').hidden = u.role === 'admin';
+  renderUserSites(u.sites, u.clients);
+  $('u-role-hint').textContent = usersCache.roles[u.role] ?? '';
+  $('user-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  $('u-name').focus();
+}
+
+function syncHowUi() {
+  const invite = $('u-how-invite').checked;
+  $('u-password-wrap').hidden = invite;
+  $('u-password').required = !invite;
+  $('user-submit').textContent = invite ? 'Send invite' : 'Add user';
+}
+$('u-how-invite').onchange = $('u-how-password').onchange = syncHowUi;
+$('u-role').onchange = syncRoleUi;
+$('user-cancel').onclick = resetUserForm;
+$('user-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const body = { name: $('u-name').value, email: $('u-email').value, role: $('u-role').value };
+  if (body.role !== 'admin') Object.assign(body, readAccess());
+  const inviting = !editingUser && $('u-how-invite').checked;
+  if (inviting) body.invite = true;
+  else if ($('u-password').value) body.password = $('u-password').value;
+  $('user-submit').disabled = true;
+  try {
+    if (editingUser) {
+      await api(`/api/users/${editingUser}`, { method: 'PUT', json: body });
+      await openUsers(`${body.name} saved.`);
+    } else {
+      await api('/api/users', { method: 'POST', json: body });
+      if (me?.kind === 'legacy' && body.role === 'admin') {
+        // The old admin password has just been retired; sign in properly.
+        setToken(null);
+        closePanels();
+        $('login-old-admin').hidden = true;
+        showLogin(`Named admin ${body.email} created. The old admin password is now retired: sign in with that email.`);
+        $('login-email').value = body.email;
+        return;
+      }
+      await openUsers(inviting
+        ? `Invite sent to ${body.email}. ${body.name} shows as Invited until they set a password.`
+        : `${body.name} added. They sign in with ${body.email} and the password you set.`);
+    }
+  } catch (err) { note('users-msg', err.message, false); }
+  finally { $('user-submit').disabled = false; }
+};
+
+
+// ---- Admin panel: tabs, overview, email, log
+const tabOpeners = {
+  'admin-overview': () => openOverview(),
+  'sites-panel': () => openSites(),
+  'users-panel': () => openUsers(),
+  'mail-panel': () => openMail(),
+  'log-panel': () => openLog(),
+};
+document.querySelectorAll('#admin-panel [role="tab"]').forEach((b) => b.onclick = () => tabOpeners[b.dataset.tab]());
+$('btn-admin').onclick = () => openOverview();
+$('admin-close').onclick = () => { $('admin-panel').hidden = true; };
+
+async function guarded(fn) {
+  try { await fn(); } catch (err) {
+    if (err instanceof AuthRequired) return showLogin('');
+    $('demo').innerHTML = `<div class="banner">${esc(err.message)}</div>`;
+  }
+}
+
+function openOverview(message) {
+  return guarded(async () => {
+    const o = await api('/api/admin/overview');
+    $('admin-scope').textContent = `Managing: ${o.scope || 'nothing yet'}`;
+    const c = o.counts;
+    const tile = (label, value, sub) => `<div class="tile kpi"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="sub">${esc(sub)}</div></div>`;
+    $('ov-counts').innerHTML = [
+      tile('Clients', c.clients, me?.isAdmin ? 'Groups on Table Runner' : 'Yours to manage'),
+      tile('Sites', `${c.liveSites} / ${c.sites}`, 'Live of all sites'),
+      tile('Users', c.users, `${c.invited} invited, ${c.disabled} disabled`),
+      tile('Email', o.mail.connected ? 'On' : 'Off', o.mail.connected ? (o.mail.from ? `From ${o.mail.from}` : 'Invites can be sent') : 'Invites cannot be sent'),
+    ].join('');
+    const urgent = o.attention.filter((a) => a.level !== 'info').length;
+    $('tab-attention').hidden = !urgent;
+    $('tab-attention').textContent = urgent;
+    $('ov-attention').innerHTML = o.attention.length
+      ? o.attention.map((a, i) => `<div class="todo ${esc(a.level)}"><span>${esc(a.text)}</span><button data-todo="${i}">${esc(a.action.label)}</button></div>`).join('')
+      : '<div class="all-clear">Nothing needs attention. Every site you manage is connected and everyone has accepted their invite.</div>';
+    document.querySelectorAll('[data-todo]').forEach((b) => b.onclick = async () => {
+      const a = o.attention[Number(b.dataset.todo)].action;
+      if (a.type === 'email') return openMail();
+      if (a.type === 'users') return openUsers();
+      if (a.type === 'site') { setSite(a.site); refresh(); return openSettings(); }
+      if (a.type === 'resend') {
+        b.disabled = true;
+        try {
+          await api(`/api/users/${a.id}/link`, { method: 'POST' });
+          await openOverview('New invite sent.');
+        } catch (err) { b.disabled = false; note('ov-msg', err.message, false); }
+      }
+    });
+    $('ov-recent').innerHTML = o.recent.length ? o.recent.map(logItem).join('') : '<li class="empty">Nothing yet.</li>';
+    showPanel('admin-overview');
+    note('ov-msg', message || '', true);
+  });
+}
+
+const logItem = (i) => `<li><time>${esc(i.at.slice(5).replace('T', ' '))}</time><span>${esc(i.message)}${i.detail?.by ? ` <span class="muted">by ${esc(i.detail.by)}</span>` : ''}</span></li>`;
+
+let logCache = [];
+function renderLog() {
+  const kind = $('log-kind').value;
+  const q = $('log-search').value.trim().toLowerCase();
+  const rows = logCache.filter((i) => (!kind || i.kind === kind) && (!q || `${i.message} ${i.detail?.by ?? ''}`.toLowerCase().includes(q)));
+  $('audit').innerHTML = rows.length ? rows.map(logItem).join('') : '<li class="empty">No matching entries.</li>';
+}
+$('log-kind').onchange = renderLog;
+$('log-search').oninput = renderLog;
+function openLog() {
+  return guarded(async () => {
+    logCache = await api('/api/audit');
+    renderLog();
+    showPanel('log-panel');
+  });
+}
+
+// ---- Email (admin)
+let mailState = null;
+function fillMail(m) {
+  mailState = m;
+  $('mail-status').innerHTML = m.connected
+    ? `<div class="pm-box on"><div>Sending through Postmark server <strong>${esc(m.serverName)}</strong> as <strong>${esc(m.fromName ? `${m.fromName} <${m.from}>` : m.from)}</strong>.</div><div class="hint">Connected ${esc(fmtWhen(m.connectedAt))}. Last test ${esc(fmtWhen(m.lastTestAt))}.</div></div>`
+    : '<div class="pm-box off">Not set up. Invites and password resets cannot be sent until it is.</div>';
+  $('m-token').value = '';
+  $('m-token-label').textContent = m.connected ? 'Replace Postmark Server API token (leave blank to keep)' : 'Postmark Server API token';
+  $('m-from').value = m.from || '';
+  $('m-from-name').value = m.fromName || '';
+  $('m-app').value = m.appUrl || m.suggestedAppUrl || '';
+  $('m-test').disabled = !m.connected;
+  $('m-disconnect').hidden = !m.connected;
+}
+
+async function showPreview(kind) {
+  document.querySelectorAll('[data-preview]').forEach((b) => b.classList.toggle('primary', b.dataset.preview === kind));
+  const p = await api(`/api/mail/preview?kind=${kind}`);
+  $('preview-subject').textContent = p.subject;
+  $('mail-preview').srcdoc = p.html;
+}
+document.querySelectorAll('[data-preview]').forEach((b) => b.onclick = () => guarded(() => showPreview(b.dataset.preview)));
+
+function openMail(message) {
+  return guarded(async () => {
+    fillMail(await api('/api/mail'));
+    showPanel('mail-panel');
+    note('mail-msg', message || '', true);
+    await showPreview('invite');
+  });
+}
+
+$('mail-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const patch = { from: $('m-from').value, fromName: $('m-from-name').value, appUrl: $('m-app').value };
+  if ($('m-token').value.trim()) patch.serverToken = $('m-token').value.trim();
+  note('mail-msg', 'Checking with Postmark...', true);
+  try {
+    const r = await api('/api/mail', { method: 'PUT', json: patch });
+    fillMail(r);
+    note('mail-msg', r.changed.length ? `Saved: ${r.changed.join(', ')}. Send yourself a test next.` : 'No changes to save.', true);
+  } catch (err) { note('mail-msg', err.message, false); }
+};
+$('m-test').onclick = async () => {
+  $('m-test').disabled = true;
+  try {
+    const r = await api('/api/mail/test', { method: 'POST' });
+    fillMail(r);
+    note('mail-msg', `Test sent to ${r.sentTo}. If it has not arrived in a minute, check spam and Postmark's Activity tab.`, true);
+  } catch (err) { $('m-test').disabled = false; note('mail-msg', err.message, false); }
+};
+$('m-disconnect').onclick = () => {
+  note('mail-msg', 'Disconnecting stops all invites and password resets. Click again to confirm.', false);
+  armed($('m-disconnect'), 'Disconnect', 'Confirm disconnect', async () => {
+    try { fillMail(await api('/api/mail', { method: 'PUT', json: { disconnect: true } })); note('mail-msg', 'Email sending disconnected.', true); }
+    catch (err) { note('mail-msg', err.message, false); }
+  });
+};
+
+// ---- Invite and reset links, forgotten password (signed out)
+let linkToken = null;
+async function showLinkForm(token) {
+  linkToken = token;
+  document.body.dataset.auth = 'needed';
+  $('login').hidden = true;
+  $('link-form').hidden = false;
+  try {
+    const l = await api(`/api/link?token=${encodeURIComponent(token)}`);
+    $('link-title').textContent = l.kind === 'invite' ? `Welcome, ${l.name.split(' ')[0]}` : 'Choose a new password';
+    $('link-who').textContent = l.kind === 'invite'
+      ? `Set a password to finish setting up your account. You will sign in with ${l.email}.`
+      : `Choose a new password for ${l.email}. Every other session on this account is signed out.`;
+    $('link-password').focus();
+  } catch (err) {
+    $('link-title').textContent = 'This link no longer works';
+    $('link-who').textContent = err.message;
+    $('link-fields').hidden = $('link-submit').hidden = true;
+    $('link-to-login').hidden = false;
+  }
+}
+const leaveLink = () => { history.replaceState(null, '', location.pathname); $('link-form').hidden = true; linkToken = null; };
+$('link-to-login').onclick = () => { leaveLink(); showLogin(''); };
+$('link-form').onsubmit = async (e) => {
+  e.preventDefault();
+  if ($('link-password').value !== $('link-confirm').value) { $('link-error').textContent = 'The two passwords do not match.'; return; }
+  try {
+    const r = await api('/api/link/accept', { method: 'POST', json: { token: linkToken, password: $('link-password').value } });
+    setToken(r.token);
+    leaveLink();
+    refresh();
+  } catch (err) { $('link-error').textContent = err.message; }
+};
+
+$('login-forgot').onclick = () => {
+  $('login').hidden = true;
+  $('forgot').hidden = false;
+  $('forgot-email').value = $('login-email').value;
+  note('forgot-msg', '', true);
+  $('forgot-email').focus();
+};
+$('forgot-back').onclick = () => { $('forgot').hidden = true; showLogin(''); };
+$('forgot').onsubmit = async (e) => {
+  e.preventDefault();
+  try { note('forgot-msg', (await api('/api/password-reset', { method: 'POST', json: { email: $('forgot-email').value } })).message, true); }
+  catch (err) { note('forgot-msg', err.message, false); }
+};
+
+// ---- My account (named users)
+$('btn-account').onclick = () => {
+  $('account-who').textContent = me ? `Signed in as ${me.name} (${me.email}), ${me.role}.` : '';
+  $('a-current').value = ''; $('a-new').value = '';
+  note('account-msg', '', true);
+  showPanel('account-panel');
+};
+$('account-close').onclick = () => { $('account-panel').hidden = true; };
+$('account-form').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    const r = await api('/api/me/password', { method: 'PUT', json: { currentPassword: $('a-current').value, newPassword: $('a-new').value } });
+    setToken(r.token);
+    $('a-current').value = ''; $('a-new').value = '';
+    note('account-msg', 'Password changed. Your other sessions are signed out.', true);
+  } catch (err) {
+    if (err instanceof AuthRequired) return showLogin('');
+    note('account-msg', err.message, false);
+  }
 };
 
 async function refresh(fromLogin) {
   try {
-    const status = await api('/api/status');
+    let status;
+    try {
+      status = await api(withSite('/api/status'));
+    } catch (err) {
+      // The remembered site was archived or taken away: fall back to the default.
+      if (site && !(err instanceof AuthRequired)) { setSite(null); status = await api('/api/status'); }
+      else throw err;
+    }
     delete document.body.dataset.auth;
     $('login').hidden = true;
     $('setup').hidden = true;
-    $('btn-settings').hidden = status.role !== 'admin';
-    $('btn-signout').hidden = !status.role;
+    if (status.site) setSite(status.site);
+    await loadMe(status);
     renderStatus(status);
     const [day, week, alerts, activity, coaching] = await Promise.all([
-      api(`/api/day?date=${selected}`), api(`/api/week?from=${today}`), api('/api/alerts'), api('/api/activity'), api('/api/coaching'),
+      api(withSite(`/api/day?date=${selected}`)), api(withSite(`/api/week?from=${today}`)), api(withSite('/api/alerts')), api(withSite('/api/activity')), api(withSite('/api/coaching')),
     ]);
     renderDay(day); renderWeek(week); renderAlerts(alerts); renderActivity(activity); renderCoaching(coaching);
     document.querySelectorAll('[data-close-date]').forEach((b) => b.onclick = async () => {
       b.disabled = true;
-      try { await api('/api/opentable-closed', { method: 'POST', json: { date: b.dataset.closeDate, sitting: b.dataset.closeSitting } }); }
+      try { await api(withSite('/api/opentable-closed'), { method: 'POST', json: { date: b.dataset.closeDate, sitting: b.dataset.closeSitting } }); }
       finally { refresh(); }
     });
   } catch (e) {
@@ -654,7 +1549,7 @@ async function refresh(fromLogin) {
 
 async function action(btn, path) {
   btn.disabled = true;
-  try { await api(path, { method: 'POST' }); } finally { btn.disabled = false; refresh(); }
+  try { await api(withSite(path), { method: 'POST' }); } finally { btn.disabled = false; refresh(); }
 }
 
 $('btn-reconcile').onclick = (e) => action(e.target, '/api/reconcile');
@@ -668,6 +1563,9 @@ async function boot() {
     try {
       const s = await api('/api/setup-status');
       if (s.needsSetup) return showSetup();
+      const link = new URLSearchParams(location.search).get('link');
+      if (link) return showLinkForm(link);
+      $('login-old-admin').hidden = !s.oldAdminPassword;
     } catch (err) {
       // The local demo server has no setup step; anything else is a real problem.
       if (!/not found/i.test(err.message)) {

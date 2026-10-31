@@ -7,9 +7,10 @@ import { exampleConfig } from '../config/allocation.example.js';
 
 // Everything that would otherwise be an environment variable lives here, in
 // Redis, and is edited on the dashboard's Settings screen by an admin.
-// Passwords are stored only as scrypt hashes. The SevenRooms client secret
-// must be read back, so it is encrypted instead, under a key the app keeps
-// apart from the settings (see secrets.js).
+// Passwords are stored only as scrypt hashes. Everyone signs in as a named
+// user; the shared team and admin passwords of earlier versions are retired.
+// The SevenRooms client secret must be read back, so it is encrypted instead,
+// under a key the app keeps apart from the settings (see secrets.js).
 
 const scryptAsync = promisify(scrypt);
 const SETTINGS_KEY = 'tr:settings';
@@ -46,7 +47,10 @@ export class SettingsStore {
   }
 }
 
-export const isConfigured = (s) => Boolean(s.teamPasswordHash && s.adminPasswordHash);
+// Set up once there is an active named admin. An install from before named
+// users also counts while its old admin password remains, so that admin can
+// sign in once to create their own account.
+export const isConfigured = (s) => Boolean(s.adminPasswordHash) || (s.users ?? []).some((u) => u.role === 'admin' && u.active);
 
 // One-time code needed to claim a fresh install. It is written to the function
 // logs, which only the Vercel team can read, so whoever finds the URL first
@@ -62,64 +66,36 @@ export async function ensureSetupCode(redis, log) {
   return code;
 }
 
-export async function completeSetup(redis, { code, teamPassword, adminPassword }) {
-  const store = new SettingsStore(redis);
-  const current = await store.get();
-  if (isConfigured(current)) throw userError(409, 'Table Runner is already set up.');
+// Checks the one-time setup code from the logs. The code is also the way
+// back in if no active admin remains.
+export async function checkSetupCode(redis, code) {
   const expected = await redis.cmd('GET', SETUP_KEY);
   if (!expected || !safeEqual(String(code ?? '').trim(), expected)) throw userError(403, 'That setup code is not correct. Copy it from the Vercel function logs.');
-  checkPasswords({ teamPassword, adminPassword });
-
-  const settings = {
-    ...current,
-    teamPasswordHash: await hashPassword(teamPassword),
-    adminPasswordHash: await hashPassword(adminPassword),
-    inboundSecret: randomSecret(),
-    sessionEpoch: 1,
-    alertWebhookUrl: '',
-    sevenRooms: { mode: 'shadow', clientId: '', clientSecret: '', venueId: '' },
-    floorPlan: current.floorPlan ?? exampleConfig,
-  };
-  await store.save(settings);
-  await redis.cmd('DEL', SETUP_KEY);
-  return settings;
 }
 
-// Applies an admin's changes. Returns the new settings, the names of the
-// fields that changed (never their values) for the activity log, and the
-// keyring, which is new if the encryption key was rotated.
-export async function applySettingsChange(current, patch, { keyring, now = () => new Date().toISOString() }) {
+export const clearSetupCode = (redis) => redis.cmd('DEL', SETUP_KEY);
+
+// First-run settings: one example site, no users yet (setup adds the admin).
+export function initialSettings() {
+  return {
+    sessionEpoch: 1,
+    inboundSecret: randomSecret(),
+    alertWebhookUrl: '',
+    sevenRooms: { mode: 'shadow', clientId: '', clientSecret: '', venueId: '' },
+    floorPlan: exampleConfig,
+  };
+}
+
+// Applies an admin's changes to one site. Returns the new settings and the
+// names of the fields that changed (never their values), for the activity log.
+// `keyring` encrypts a new client secret.
+export async function applySettingsChange(current, patch, { keyring }) {
   const next = structuredClone(current);
   const changed = [];
   const errors = [];
 
-  if (patch.rotateEncryptionKey) {
-    const stored = current.sevenRooms?.clientSecret;
-    const rotated = addKey(keyring, now());
-    // A secret that cannot be read now cannot be re-encrypted; it stays as it
-    // is and still has to be entered again.
-    if (stored && !secretProblem(stored, keyring, CLIENT_SECRET_FIELD)) {
-      next.sevenRooms = { ...next.sevenRooms, clientSecret: encryptSecret(decryptSecret(stored, keyring, CLIENT_SECRET_FIELD), rotated, CLIENT_SECRET_FIELD) };
-    }
-    keyring = rotated;
-    changed.push('encryption key');
-  }
-
   if (patch.teamPassword || patch.adminPassword) {
-    const team = patch.teamPassword || null;
-    const admin = patch.adminPassword || null;
-    for (const [name, pw] of [['Team password', team], ['Admin password', admin]]) {
-      if (pw && pw.length < 10) errors.push(`${name} must be at least 10 characters.`);
-    }
-    if (team && admin && team === admin) errors.push('Team and admin passwords must be different.');
-    if (team && !admin && await verifyPassword(team, current.adminPasswordHash)) errors.push('Team password must differ from the admin password.');
-    if (admin && !team && await verifyPassword(admin, current.teamPasswordHash)) errors.push('Admin password must differ from the team password.');
-    if (!errors.length) {
-      if (team) { next.teamPasswordHash = await hashPassword(team); changed.push('team password'); }
-      if (admin) { next.adminPasswordHash = await hashPassword(admin); changed.push('admin password'); }
-      // Signs everyone out, so a leaked old password stops working at once.
-      next.sessionEpoch = (current.sessionEpoch ?? 1) + 1;
-    }
+    errors.push('Shared passwords are retired. Give each person their own sign-in on the Users screen.');
   }
 
   if (patch.regenerateInboundSecret) {
@@ -134,7 +110,7 @@ export async function applySettingsChange(current, patch, { keyring, now = () =>
   }
 
   if (patch.sevenRooms) {
-    const sr = { ...next.sevenRooms };
+    const sr = { ...current.sevenRooms };
     for (const field of ['clientId', 'venueId']) {
       if (patch.sevenRooms[field] !== undefined && patch.sevenRooms[field] !== sr[field]) {
         sr[field] = String(patch.sevenRooms[field]).trim();
@@ -171,7 +147,7 @@ export async function applySettingsChange(current, patch, { keyring, now = () =>
   }
 
   if (errors.length) throw userError(400, errors.join(' '));
-  return { settings: next, changed, keyring };
+  return { settings: next, changed };
 }
 
 export const inboundUrlFor = (s, origin) => (s.inboundSecret ? `${origin}/api/inbound-email?key=${s.inboundSecret}` : '');
@@ -206,6 +182,23 @@ export function publicSettings(s, origin, { keyring }) {
 }
 
 export const CLIENT_SECRET_FIELD = 'sevenRooms.clientSecret';
+
+// A new encryption key for the whole install. Every site's client secret that
+// can be read is re-encrypted under it; one that cannot stays as it is and
+// still has to be entered again. Returns the new settings and the keyring
+// holding both keys, so the old one is dropped only once the settings are saved.
+export function rotateEncryptionKey(settings, keyring, at) {
+  const rotated = addKey(keyring, at);
+  let count = 0;
+  const sites = settings.sites.map((site) => {
+    const stored = site.sevenRooms?.clientSecret;
+    if (!stored || secretProblem(stored, keyring, CLIENT_SECRET_FIELD)) return site;
+    count++;
+    const plain = decryptSecret(stored, keyring, CLIENT_SECRET_FIELD);
+    return { ...site, sevenRooms: { ...site.sevenRooms, clientSecret: encryptSecret(plain, rotated, CLIENT_SECRET_FIELD) } };
+  });
+  return { settings: { ...settings, sites }, keyring: rotated, count };
+}
 
 // Starting reserve for late OpenTable bookings until the coaching section has
 // enough history to recommend figures: one table per sitting, two on Friday
@@ -283,18 +276,21 @@ export class Sessions {
     return `tr:session:${createHash('sha256').update(token).digest('hex')}`;
   }
 
-  async create(role, epoch) {
+  // `extra` carries a named user's id and their own epoch, so changing one
+  // user's access signs out only that user.
+  async create(role, epoch, extra = {}) {
     const token = randomSecret(32);
-    await this.redis.cmd('SET', this.#key(token), JSON.stringify({ role, epoch }), 'EX', SESSION_TTL_S);
+    await this.redis.cmd('SET', this.#key(token), JSON.stringify({ role, epoch, ...extra }), 'EX', SESSION_TTL_S);
     return token;
   }
 
+  // The stored session if it is still valid for this install epoch.
   async verify(token, epoch) {
     if (!token) return null;
     const raw = await this.redis.cmd('GET', this.#key(token));
     if (!raw) return null;
     const s = JSON.parse(raw);
-    return s.epoch === epoch ? s.role : null;
+    return s.epoch === epoch ? s : null;
   }
 
   async destroy(token) {
@@ -312,14 +308,6 @@ export async function recordLoginFailure(redis, address) {
   const key = `tr:login-fail:${address}`;
   await redis.cmd('INCR', key);
   await redis.cmd('EXPIRE', key, 900);
-}
-
-function checkPasswords({ teamPassword, adminPassword }) {
-  const errors = [];
-  if (typeof teamPassword !== 'string' || teamPassword.length < 10) errors.push('Team password must be at least 10 characters.');
-  if (typeof adminPassword !== 'string' || adminPassword.length < 10) errors.push('Admin password must be at least 10 characters.');
-  if (!errors.length && teamPassword === adminPassword) errors.push('Team and admin passwords must be different.');
-  if (errors.length) throw userError(400, errors.join(' '));
 }
 
 export function userError(status, message) {
