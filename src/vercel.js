@@ -1,4 +1,5 @@
 import { route } from './routes.js';
+import { actorRecord } from './alert.js';
 import { passwordFromHeader, safeEqual } from './auth.js';
 import { ConfigError, createLiveApp } from './live.js';
 import { loadKeyring, saveKeyring, pruneKeyring, encryptSecret } from './secrets.js';
@@ -252,6 +253,8 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
       const isAdmin = principal.role === 'admin';
       const manager = canManage(principal);
       const by = principal.email ?? principal.name;
+      // Who acknowledged an alert or changed a site's settings, for the site activity.
+      const signedIn = actorRecord(principal);
       const pubSite = (x, s = settings) => publicSite(x, s, { full: canManageSite(principal, x) });
       const logAdmin = (kind, message, clients) => audit.add(kind, message, { by, clients: clients.filter(Boolean) });
       const newTokenFor = (s) => (session.userId
@@ -454,7 +457,7 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
           const next = putSiteView(settings, site.id, nextView);
           await store.save(next);
           if (changed.length) {
-            await app.activity.add('settings', `Settings changed: ${changed.join(', ')}`);
+            await app.activity.add('settings', `Settings changed by ${signedIn.name}: ${changed.join(', ')}`, { by: signedIn });
             await logAdmin('settings', `${site.name}: settings changed: ${changed.join(', ')}`, [site.clientId]);
           }
           const body = { ...withSite(next, nextView), changed };
@@ -464,7 +467,7 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
       }
 
       if (method !== 'GET' && !canAct(principal)) return send(res, 403, { error: 'Your account can view this site but not change anything.' });
-      const result = await route(app, method, url, () => readBody(req));
+      const result = await route(app, method, url, () => readBody(req), signedIn);
       if (path === '/api/status') {
         const client = findClient(settings, site.clientId);
         return send(res, 200, { ...result, role: principal.role, site: site.id, client: client && { id: client.id, name: client.name }, user: meFor(principal) });

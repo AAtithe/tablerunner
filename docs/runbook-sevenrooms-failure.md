@@ -25,6 +25,12 @@ the role an admin gives their account.
 A viewer account sees everything but cannot acknowledge an alert. Nobody on
 shift should have one.
 
+Every acknowledgement is recorded against the account that made it: the
+alert keeps the person's name and email and the time, and the site's activity
+shows "Alert N acknowledged by [name]". That record is what the incident
+write-up uses to show who handled which booking by hand, so acknowledge only
+on your own account and only once you have done what the alert asks.
+
 Contact numbers: [sync owner mobile], [back-up mobile], [GM mobile]. The sync
 owner answers during service hours from 11:30 to 23:30.
 
@@ -142,8 +148,8 @@ account, then keeps trying the sync owner.
    cancellation is entered in SevenRooms by hand.
 
 The change is recorded with your name and the time on the Admin panel's
-recent changes, and with the time in the site's activity. Use that record for
-the times in the incident write-up.
+recent changes, and as "Settings changed by [your name]" with the time in the
+site's activity. Use that record for the times in the incident write-up.
 
 While in shadow mode, changes and cancellations to bookings that the sync
 already wrote to SevenRooms raise `sync_failed`, because the shadow store does
@@ -170,7 +176,8 @@ not hold them. That is expected. Each one must still be made by hand.
 Within one working day, record in this repository under `docs/incidents/`:
 
 - what happened and when, from the first alert to the switch back;
-- which bookings were handled by hand, by confirmation number;
+- which bookings were handled by hand, by confirmation number, and by whom:
+  take the name from each acknowledged alert in the site's activity;
 - whether any guest was affected, and how;
 - the cause, and what changes so it does not happen again.
 

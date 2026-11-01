@@ -79,7 +79,7 @@ The reserve lives in each site's floor plan, under release, as holdBack. Only an
 2. Press Settings. From the Admin panel, the same screen is under Clients and sites, Settings beside Broadcaster.
 3. In Floor plan and OpenTable allocation, find the release block and change the holdBack figures.
 4. Press Save settings. If anything is wrong, Table Runner refuses the save and says which line, and nothing changes.
-5. Check the activity log shows Settings changed: floor plan. The Admin log also records who made the change.
+5. Check the activity log shows Settings changed by [your name]: floor plan. The Admin log also records who made the change.
 
 Broadcaster's current setting:
 

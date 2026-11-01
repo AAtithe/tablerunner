@@ -3,6 +3,7 @@
 // Keys are prefixed per venue, so one database can serve several venues.
 
 import { assertTableFree } from './sevenrooms.js';
+import { DASHBOARD_ACTOR, actorRecord } from '../alert.js';
 
 export class RedisRest {
   constructor({ url, token, fetchImpl = fetch }) {
@@ -168,10 +169,10 @@ export class RedisAlerts {
     return (await this.all()).filter((a) => !a.acknowledged);
   }
 
-  async acknowledge(id, by = 'dashboard') {
+  async acknowledge(id, by = DASHBOARD_ACTOR) {
     const a = parse(await this.redis.cmd('HGET', this.key, id));
     if (!a) return null;
-    const updated = { ...a, acknowledged: true, acknowledgedBy: by, acknowledgedAt: this.clock() };
+    const updated = { ...a, acknowledged: true, acknowledgedBy: actorRecord(by), acknowledgedAt: this.clock() };
     await this.redis.cmd('HSET', this.key, id, JSON.stringify(updated));
     return updated;
   }

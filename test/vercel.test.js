@@ -128,7 +128,7 @@ test('settings validate, log changes and refuse live SevenRooms until it exists'
   const status = (await call('GET', '/api/status', { token })).json();
   assert.equal(status.mode.floorPlan.live, true);
   const activity = (await call('GET', '/api/activity', { token })).json();
-  assert.match(activity[0].message, /^Settings changed: alert webhook/);
+  assert.match(activity[0].message, /^Settings changed by Tom Admin: alert webhook/);
   assert.equal(JSON.stringify(activity).includes('s3cret'), false);
 });
 
@@ -193,6 +193,48 @@ test('inbound email uses the key from settings; regenerating revokes the old one
 
   await call('PUT', '/api/settings', { token, body: { regenerateInboundSecret: true } });
   assert.equal((await call('POST', path, { body })).statusCode, 401);
+});
+
+test('an alert acknowledged by a named user records that user, in the alert and the activity', async () => {
+  const { call, setUp, login } = harness();
+  const admin = await setUp();
+  const MANAGER = { name: 'Sam Host', email: 'sam@venue.co', password: 'manager-pass-1' };
+  const made = await call('POST', '/api/users', { token: admin, body: { ...MANAGER, role: 'manager', sites: ['*'] } });
+  assert.equal(made.statusCode, 200, made.body);
+
+  // An email Table Runner cannot read raises an alert for the host.
+  const { inboundUrl } = (await call('GET', '/api/settings', { token: admin })).json();
+  const raised = await call('POST', inboundUrl.replace('https://tr.example', ''), { body: { Subject: 'Something else', TextBody: 'not a booking' } });
+  assert.equal(raised.json().action, 'unparseable');
+
+  const host = (await login(MANAGER)).json().token;
+  const [alert] = (await call('GET', '/api/alerts', { token: host })).json();
+  assert.equal(alert.code, 'unparseable_email');
+
+  const ack = await call('POST', `/api/alerts/${alert.id}/ack`, { token: host });
+  assert.equal(ack.statusCode, 200, ack.body);
+  assert.deepEqual(ack.json().acknowledgedBy, { name: 'Sam Host', email: 'sam@venue.co' });
+  assert.equal(ack.json().acknowledgedAt, clock());
+
+  // The record is kept: it reads back the same from storage, for anyone on the site.
+  const stored = (await call('GET', '/api/alerts?all=1', { token: admin })).json().find((a) => a.id === alert.id);
+  assert.deepEqual(stored.acknowledgedBy, { name: 'Sam Host', email: 'sam@venue.co' });
+  assert.equal((await call('GET', '/api/alerts', { token: admin })).json().length, 0);
+
+  const [entry] = (await call('GET', '/api/activity', { token: admin })).json();
+  assert.equal(entry.kind, 'alert.ack');
+  assert.equal(entry.message, `Alert ${alert.id} acknowledged by Sam Host: unparseable_email`);
+  assert.deepEqual(entry.detail.by, { name: 'Sam Host', email: 'sam@venue.co' });
+});
+
+test('a site settings change names the person in the site activity', async () => {
+  const { call, setUp } = harness();
+  const token = await setUp();
+  const ok = await call('PUT', '/api/settings', { token, body: { alertWebhookUrl: 'https://hooks.example/abc' } });
+  assert.equal(ok.statusCode, 200, ok.body);
+  const [entry] = (await call('GET', '/api/activity', { token })).json();
+  assert.equal(entry.message, 'Settings changed by Tom Admin: alert webhook');
+  assert.deepEqual(entry.detail.by, { name: 'Tom Admin', email: 'admin@ws.co' });
 });
 
 test('scheduled jobs run without a secret and reconciliation is rate-limited', async () => {

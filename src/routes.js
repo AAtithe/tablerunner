@@ -1,13 +1,18 @@
 // The dashboard API, independent of transport. The Node server and the
 // static browser build both answer requests through this one function.
 
+import { DASHBOARD_ACTOR, actorRecord } from './alert.js';
+
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function httpError(status, message) {
   return Object.assign(new Error(message), { status });
 }
 
-export async function route(app, method, url, readBody) {
+// `actor` is who is making the request: { name, email }. The Vercel service
+// passes the signed-in account; the demo server and static build have no named
+// users and act as the dashboard.
+export async function route(app, method, url, readBody, actor = DASHBOARD_ACTOR) {
   const key = `${method} ${url.pathname}`;
   const today = app.today ? app.today() : (await app.status()).now.slice(0, 10);
   const date = (name) => {
@@ -46,9 +51,10 @@ export async function route(app, method, url, readBody) {
   }
   const ack = key.match(/^POST \/api\/alerts\/(\d+)\/ack$/);
   if (ack) {
-    const a = await app.alerts.acknowledge(Number(ack[1]));
+    const by = actorRecord(actor);
+    const a = await app.alerts.acknowledge(Number(ack[1]), by);
     if (!a) throw httpError(404, 'alert not found');
-    await app.activity.add('alert.ack', `Alert ${a.id} acknowledged: ${a.code}`);
+    await app.activity.add('alert.ack', `Alert ${a.id} acknowledged by ${by.name}: ${a.code}`, { by });
     return a;
   }
   throw httpError(404, 'not found');
