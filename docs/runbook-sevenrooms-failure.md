@@ -32,6 +32,12 @@ At the host stand, sign out at the end of each shift. Every alert you
 acknowledge is recorded with your name, so a sign-in left open puts your name
 on someone else's actions.
 
+The same goes for the other buttons on the dashboard. A release, a
+reconciliation and Mark closed in OpenTable are each recorded in the site's
+activity with the name of the person who pressed it, and the tables
+concerned. The scheduled release and reconciliation carry no name, because
+nobody ran them.
+
 ## During service: what the host does
 
 Check the dashboard alerts at the start of each sitting and whenever the
@@ -171,7 +177,8 @@ not hold them. That is expected. Each one must still be made by hand.
 
 Within one working day, record in this repository under `docs/incidents/`:
 
-- what happened and when, from the first alert to the switch back;
+- what happened and when, from the first alert to the switch back, and who
+  ran each release, reconciliation and Mark closed from the site's activity;
 - which bookings were handled by hand, by confirmation number, and who
   handled each: the site's activity shows who acknowledged every alert;
 - whether any guest was affected, and how;

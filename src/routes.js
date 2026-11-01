@@ -8,9 +8,11 @@ export function httpError(status, message) {
 }
 
 // `actor` is the signed-in person, { name, email }, where there is one. Their
-// name goes on what they acknowledge, so an incident can be traced to a person.
+// name goes on what they acknowledge, release, reconcile or mark closed, so an
+// incident can be traced to a person.
 export async function route(app, method, url, readBody, { actor = null } = {}) {
   const key = `${method} ${url.pathname}`;
+  const by = actor ? describeActor(actor) : undefined;
   const today = app.today ? app.today() : (await app.status()).now.slice(0, 10);
   const date = (name) => {
     const v = url.searchParams.get(name) ?? today;
@@ -26,12 +28,12 @@ export async function route(app, method, url, readBody, { actor = null } = {}) {
     return (await (all ? app.alerts.all() : app.alerts.open())).slice().sort((a, b) => b.id - a.id);
   }
   if (key === 'GET /api/activity') return app.activity.list({ limit: 100 });
-  if (key === 'POST /api/reconcile') return app.reconcile();
-  if (key === 'POST /api/release') return app.release();
+  if (key === 'POST /api/reconcile') return app.reconcile({ by });
+  if (key === 'POST /api/release') return app.release({ by });
   if (key === 'POST /api/opentable-closed') {
     const body = await readBody();
     if (!Array.isArray(body.keys) && !(typeof body.date === 'string' && DATE.test(body.date))) throw httpError(400, 'send keys, or a date (and optional sitting)');
-    return app.confirmClosed({ keys: body.keys, date: body.date, sitting: body.sitting });
+    return app.confirmClosed({ keys: body.keys, date: body.date, sitting: body.sitting, by });
   }
   if (key === 'GET /api/coaching') return app.coaching({ weeks: 8 });
   if (key === 'GET /api/late-demand') {
@@ -48,7 +50,6 @@ export async function route(app, method, url, readBody, { actor = null } = {}) {
   }
   const ack = key.match(/^POST \/api\/alerts\/(\d+)\/ack$/);
   if (ack) {
-    const by = actor ? describeActor(actor) : undefined;
     const a = await app.alerts.acknowledge(Number(ack[1]), by);
     if (!a) throw httpError(404, 'alert not found');
     await app.activity.add('alert.ack', `Alert ${a.id} acknowledged${by ? ` by ${by}` : ''}: ${a.code}`);

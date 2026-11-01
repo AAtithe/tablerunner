@@ -361,3 +361,59 @@ test('an acknowledged alert records who acknowledged it', async () => {
   const activity = (await call('GET', '/api/activity', { token })).json();
   assert.match(activity[0].message, /^Alert \d+ acknowledged by Jo Host \(jo@venue\.co\): unparseable_email$/);
 });
+
+test('releases, reconciliation and mark closed run from the dashboard name the person', async () => {
+  const { call, setUp, login } = harness();
+  const admin = await setUp();
+  const MANAGER = { name: 'Sam Host', email: 'sam@venue.co', password: 'manager-pass-1' };
+  const made = await call('POST', '/api/users', { token: admin, body: { ...MANAGER, role: 'manager', sites: ['*'] } });
+  assert.equal(made.statusCode, 200, made.body);
+  const host = (await login(MANAGER)).json().token;
+  const SAM = 'Sam Host (sam@venue.co)';
+  const latest = async () => (await call('GET', '/api/activity', { token: admin })).json()[0];
+
+  // Thursday 5 November released at 16:00 on 3 November, so tables are due now.
+  // A new install is in shadow mode, where the host releases them by hand.
+  const released = (await call('POST', '/api/release', { token: host })).json();
+  assert.ok(released.length > 0);
+  let entry = await latest();
+  assert.equal(entry.kind, 'release');
+  assert.equal(entry.message, `Release run by ${SAM}: host asked to release ${released.length} unsold OpenTable table(s)`);
+  assert.equal(entry.detail.by, SAM);
+
+  // A second run has nothing due, and is still recorded against the person.
+  assert.deepEqual((await call('POST', '/api/release', { token: host })).json(), []);
+  assert.equal((await latest()).message, `Release run by ${SAM}: nothing due`);
+  assert.equal((await call('GET', '/api/status', { token: admin })).json().lastRelease.by, SAM);
+
+  const closed = await call('POST', '/api/opentable-closed', { token: host, body: { date: '2026-11-05', sitting: 'early' } });
+  assert.equal(closed.statusCode, 200, closed.body);
+  assert.ok(closed.json().closed.length > 0);
+  entry = await latest();
+  assert.equal(entry.kind, 'opentable.closed');
+  assert.ok(entry.message.startsWith(`Marked ${closed.json().closed.length} table(s) closed in OpenTable by ${SAM}: early T`), entry.message);
+  assert.equal(entry.detail.by, SAM);
+  assert.deepEqual(entry.detail.tables, closed.json().closed);
+
+  await call('POST', '/api/reconcile', { token: host });
+  entry = await latest();
+  assert.equal(entry.kind, 'reconcile');
+  assert.match(entry.message, /^Reconciliation run by Sam Host \(sam@venue\.co\): clean, \d+ bookings checked$/);
+  assert.equal(entry.detail.by, SAM);
+  assert.equal((await call('GET', '/api/status', { token: admin })).json().lastReconciliation.by, SAM);
+});
+
+test('scheduled releases and reconciliation are not put against anyone', async () => {
+  const { call, setUp } = harness();
+  const token = await setUp();
+  await call('POST', '/api/cron/release');
+  await call('POST', '/api/cron/reconcile');
+  const [rec, rel] = (await call('GET', '/api/activity', { token })).json();
+  assert.match(rec.message, /^Reconciliation clean: \d+ bookings checked$/);
+  assert.match(rel.message, /^Host asked to release \d+ unsold OpenTable table\(s\)$/);
+  assert.equal(rec.detail.by, undefined);
+  assert.equal(rel.detail.by, undefined);
+  const status = (await call('GET', '/api/status', { token })).json();
+  assert.equal(status.lastRelease.by, null);
+  assert.equal(status.lastReconciliation.by, null);
+});
