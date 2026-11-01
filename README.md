@@ -20,6 +20,7 @@ a morning reconciliation catches anything the sync missed.
 | `src/coaching.js` | Learns late OpenTable demand and sell-through per night, measures team habits by week, writes coaching notes |
 | `docs/host-daily-routine.md` | Host guide: morning check, release time, alerts, handover, weekly coaching review |
 | `docs/manager-setting-the-reserve.md` | Manager guide: reading the Coaching table, deciding and changing the reserve, monthly review |
+| `docs/admin-named-accounts.md` | Admin guide: roles and access, first admin account, email sending, adding and looking after users, go-live checklist |
 | `docs/opentable-exposure.md` | Why released tables stay open in OpenTable, sizing the reserve, monitoring |
 | `src/reconcile.js` | Daily OpenTable vs SevenRooms comparison with alert |
 | `src/adapters/opentable-email.js` | Parses OpenTable notification emails (fallback if no partner API) |
