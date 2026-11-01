@@ -10,15 +10,26 @@ system is fixed afterwards.
 
 ## Who does what
 
-| Role | Who | Holds |
-| --- | --- | --- |
-| Host on shift | Duty host | Team password: dashboard and alerts |
-| Duty manager | GM or assistant manager on shift | Final call on seating |
-| Sync owner | [Name], Williams, Stanley & Co. | Admin password: Settings, switch to shadow mode |
-| Back-up sync owner | [Name] | Admin password |
+Everyone signs in with their own account: their email address and a password
+only they know. Accounts are never shared. What a person can do depends on
+the role an admin gives their account.
 
-Contact numbers: [sync owner mobile], [back-up mobile]. The sync owner
-answers during service hours from 11:30 to 23:30.
+| Job | Who | Table Runner role | Can do |
+| --- | --- | --- | --- |
+| Host on shift | Duty host | Manager | See the dashboard, acknowledge alerts, run releases and reconciliation |
+| Duty manager | GM or assistant manager on shift | Manager | As the host. Final call on seating |
+| GM | [Name], Broadcaster | Client admin for Broadcaster | As a manager, plus Settings: can switch to shadow mode if the sync owner cannot be reached |
+| Sync owner | [Name], Williams, Stanley & Co. | Admin | Everything, including Settings and switching to shadow mode |
+| Back-up sync owner | [Name], Williams, Stanley & Co. | Admin | As the sync owner |
+
+A viewer account sees everything but cannot acknowledge an alert. Nobody on
+shift should have one.
+
+Contact numbers: [sync owner mobile], [back-up mobile], [GM mobile]. The sync
+owner answers during service hours from 11:30 to 23:30.
+
+At the host stand, sign out at the end of each shift, so the next person
+signs in as themselves and nobody works on an account that is not theirs.
 
 ## During service: what the host does
 
@@ -83,7 +94,10 @@ These arrive at the release time on each service day.
 1. Work from OpenTable and SevenRooms directly, as before the sync. Enter each
    new OpenTable booking, change and cancellation in SevenRooms by hand.
 2. Phone the sync owner.
-3. Keep a list of what you entered by hand during the outage, with
+3. If you cannot sign in at all, use Forgotten your password? on the sign-in
+   screen. If that does not work in two minutes, stop trying and carry on by
+   hand: the duty manager or GM can check the dashboard on their own account.
+4. Keep a list of what you entered by hand during the outage, with
    confirmation numbers. The sync owner needs it afterwards.
 
 ## Before service: the morning reconciliation
@@ -116,12 +130,20 @@ problem.
 
 ### Switching to shadow mode
 
-1. Sign in to the dashboard with the admin password and open Settings.
-2. Under SevenRooms, set Mode to "Shadow: record only, SevenRooms untouched".
-   Save.
+The sync owner does this. If neither the sync owner nor the back-up answers
+within 10 minutes during service, the GM does it on their client admin
+account, then keeps trying the sync owner.
+
+1. Sign in with your own account. If the site selector at the top shows more
+   than one site, choose Broadcaster.
+2. Open Settings. Under SevenRooms, set Mode to "Shadow: record only,
+   SevenRooms untouched". Save.
 3. Tell the duty manager: from now on, every OpenTable booking, change and
    cancellation is entered in SevenRooms by hand.
-4. Note the time of the switch.
+
+The change is recorded with your name and the time on the Admin panel's
+recent changes, and with the time in the site's activity. Use that record for
+the times in the incident write-up.
 
 While in shadow mode, changes and cancellations to bookings that the sync
 already wrote to SevenRooms raise `sync_failed`, because the shadow store does
@@ -132,7 +154,9 @@ not hold them. That is expected. Each one must still be made by hand.
 1. Confirm the cause is fixed. If SevenRooms was down, they need to confirm
    it is back. If the sync was writing wrong data, the fix must be deployed and
    the contract tests must pass against the sandbox.
-2. Set Mode back to live in Settings.
+2. Sign in with your own account, choose Broadcaster, and set Mode back to
+   live in Settings. Only the sync owner or back-up switches back to live,
+   never the GM alone: going live again needs the cause confirmed as fixed.
 3. Run reconciliation from the dashboard straight away.
 4. Bookings that arrived during shadow mode were entered by hand, so they are
    not linked to the sync, and any later change or cancellation to one raises
@@ -156,6 +180,12 @@ tables are being sold, and is raised with the GM.
 ## Before go-live
 
 - Fill in the names and numbers above.
+- Check accounts on the Admin panel, Users tab: every host and duty manager
+  has their own manager account and has accepted the invite; the GM is a
+  client admin for Broadcaster; the sync owner and back-up are admins. No
+  host has a viewer account.
+- Each host signs in once at the host stand device and resets a forgotten
+  password, so the first time is not mid-service.
 - Walk every host through this runbook once, with the dashboard open.
 - Test the switch to shadow mode and back on the sandbox, with the GM
   watching.
