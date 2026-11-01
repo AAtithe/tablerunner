@@ -73,11 +73,13 @@ export function createHandler({ getRedis, clock = () => londonNow(), log = conso
       const audit = new RedisActivity(redis, 'tr:install', { clock });
       let keyring = await loadKeyring(redis);
       // Tokens saved in plain text before encryption existed are encrypted
-      // once, on the first request after this version is deployed.
+      // once, on the first request after this version is deployed. The admin
+      // log records how many, as evidence the conversion ran; never the values.
       const sealed = encryptPlainSecrets(settings, keyring);
       if (sealed) {
-        settings = sealed;
+        settings = sealed.settings;
         await store.save(settings);
+        await audit.add('settings', `${sealed.count} saved secret(s) found in plain text and encrypted at rest`, { by: 'Table Runner', clients: [] });
       }
 
       if (path === '/api/setup-status') {

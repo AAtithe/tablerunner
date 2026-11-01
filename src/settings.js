@@ -220,10 +220,11 @@ export function rotateEncryptionKey(settings, keyring, at) {
 }
 
 // Secrets saved in plain text before encryption existed are encrypted in
-// place. Returns the new settings, or null if there were none.
+// place. Returns the new settings and how many were encrypted, or null if
+// there were none.
 export function encryptPlainSecrets(settings, keyring) {
   const r = mapSecrets(settings, (stored, field) => (isEncrypted(stored) ? stored : encryptSecret(stored, keyring, field)));
-  return r.count ? r.settings : null;
+  return r.count ? r : null;
 }
 
 // Reads a stored secret for use. A secret that cannot be read means the
