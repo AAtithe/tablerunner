@@ -7,7 +7,9 @@ export function httpError(status, message) {
   return Object.assign(new Error(message), { status });
 }
 
-export async function route(app, method, url, readBody) {
+// `actor` is the signed-in person, { name, email }, where there is one. Their
+// name goes on what they acknowledge, so an incident can be traced to a person.
+export async function route(app, method, url, readBody, { actor = null } = {}) {
   const key = `${method} ${url.pathname}`;
   const today = app.today ? app.today() : (await app.status()).now.slice(0, 10);
   const date = (name) => {
@@ -46,13 +48,16 @@ export async function route(app, method, url, readBody) {
   }
   const ack = key.match(/^POST \/api\/alerts\/(\d+)\/ack$/);
   if (ack) {
-    const a = await app.alerts.acknowledge(Number(ack[1]));
+    const by = actor ? describeActor(actor) : undefined;
+    const a = await app.alerts.acknowledge(Number(ack[1]), by);
     if (!a) throw httpError(404, 'alert not found');
-    await app.activity.add('alert.ack', `Alert ${a.id} acknowledged: ${a.code}`);
+    await app.activity.add('alert.ack', `Alert ${a.id} acknowledged${by ? ` by ${by}` : ''}: ${a.code}`);
     return a;
   }
   throw httpError(404, 'not found');
 }
+
+export const describeActor = (actor) => (actor.email ? `${actor.name} (${actor.email})` : actor.name);
 
 function stripHtml(html) {
   return String(html).replace(/<br\s*\/?>|<\/(p|div|tr|li)>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');

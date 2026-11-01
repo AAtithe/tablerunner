@@ -128,7 +128,7 @@ test('settings validate, log changes and refuse live SevenRooms until it exists'
   const status = (await call('GET', '/api/status', { token })).json();
   assert.equal(status.mode.floorPlan.live, true);
   const activity = (await call('GET', '/api/activity', { token })).json();
-  assert.match(activity[0].message, /^Settings changed: alert webhook/);
+  assert.match(activity[0].message, /^Settings changed by Tom Admin \(admin@ws.co\): alert webhook/);
   assert.equal(JSON.stringify(activity).includes('s3cret'), false);
 });
 
@@ -336,4 +336,28 @@ test('a Postmark inbound token saved in plain text is encrypted and still re-poi
   const regen = (await call('PUT', '/api/settings', { token, body: { regenerateInboundSecret: true } })).json();
   assert.deepEqual(regen.changed, ['email webhook key', 'Postmark webhook updated']);
   assert.equal(pm.server.InboundHookUrl, regen.inboundUrl);
+});
+
+test('an acknowledged alert records who acknowledged it', async () => {
+  const { call, setUp, login } = harness();
+  const admin = await setUp();
+  const key = new URL((await call('GET', '/api/settings', { token: admin })).json().inboundUrl).searchParams.get('key');
+  // An email the parser cannot read raises an alert.
+  await call('POST', `/api/inbound-email?key=${key}`, { body: { Subject: 'Hello', TextBody: 'not a booking' } });
+
+  const host = { name: 'Jo Host', email: 'jo@venue.co', password: 'host-password-1' };
+  const made = await call('POST', '/api/users', { token: admin, body: { ...host, role: 'manager', sites: ['broadcaster'] } });
+  assert.equal(made.statusCode, 200, made.body);
+  const token = (await login(host)).json().token;
+
+  const [alert] = (await call('GET', '/api/alerts', { token })).json();
+  assert.equal(alert.code, 'unparseable_email');
+  const acked = await call('POST', `/api/alerts/${alert.id}/ack`, { token });
+  assert.equal(acked.statusCode, 200, acked.body);
+  assert.equal(acked.json().acknowledgedBy, 'Jo Host (jo@venue.co)');
+
+  const all = (await call('GET', '/api/alerts?all=1', { token })).json();
+  assert.equal(all.find((a) => a.id === alert.id).acknowledgedBy, 'Jo Host (jo@venue.co)');
+  const activity = (await call('GET', '/api/activity', { token })).json();
+  assert.match(activity[0].message, /^Alert \d+ acknowledged by Jo Host \(jo@venue\.co\): unparseable_email$/);
 });
