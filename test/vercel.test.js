@@ -330,6 +330,9 @@ test('a Postmark inbound token saved in plain text is encrypted and still re-poi
 
   await call('PUT', '/api/settings', { token, body: { rotateEncryptionKey: true } });
   assert.equal(dumpRedis(redis).includes('pm-token'), false);
+  // The admin log records the conversion once, with a count and no value.
+  const log = (await call('GET', '/api/audit', { token })).json().map((e) => e.message);
+  assert.deepEqual(log.filter((m) => /plain text/.test(m)), ['1 saved secret(s) found in plain text and encrypted at rest']);
   const regen = (await call('PUT', '/api/settings', { token, body: { regenerateInboundSecret: true } })).json();
   assert.deepEqual(regen.changed, ['email webhook key', 'Postmark webhook updated']);
   assert.equal(pm.server.InboundHookUrl, regen.inboundUrl);
