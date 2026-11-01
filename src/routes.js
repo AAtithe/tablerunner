@@ -29,12 +29,12 @@ export async function route(app, method, url, readBody, actor = DASHBOARD_ACTOR)
     return (await (all ? app.alerts.all() : app.alerts.open())).slice().sort((a, b) => b.id - a.id);
   }
   if (key === 'GET /api/activity') return app.activity.list({ limit: 100 });
-  if (key === 'POST /api/reconcile') return app.reconcile();
-  if (key === 'POST /api/release') return app.release();
+  if (key === 'POST /api/reconcile') return app.reconcile({ by: actorRecord(actor) });
+  if (key === 'POST /api/release') return app.release({ by: actorRecord(actor) });
   if (key === 'POST /api/opentable-closed') {
     const body = await readBody();
     if (!Array.isArray(body.keys) && !(typeof body.date === 'string' && DATE.test(body.date))) throw httpError(400, 'send keys, or a date (and optional sitting)');
-    return app.confirmClosed({ keys: body.keys, date: body.date, sitting: body.sitting });
+    return app.confirmClosed({ keys: body.keys, date: body.date, sitting: body.sitting, by: actorRecord(actor) });
   }
   if (key === 'GET /api/coaching') return app.coaching({ weeks: 8 });
   if (key === 'GET /api/late-demand') {

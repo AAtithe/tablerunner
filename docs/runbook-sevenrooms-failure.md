@@ -31,6 +31,12 @@ shows "Alert N acknowledged by [name]". That record is what the incident
 write-up uses to show who handled which booking by hand, so acknowledge only
 on your own account and only once you have done what the alert asks.
 
+The same goes for the other buttons on the dashboard. A release, a
+reconciliation and Mark closed in OpenTable are each recorded in the site's
+activity with the name of the person who pressed it, and the tables
+concerned. The scheduled release and reconciliation carry no name, because
+nobody ran them.
+
 Contact numbers: [sync owner mobile], [back-up mobile], [GM mobile]. The sync
 owner answers during service hours from 11:30 to 23:30.
 
@@ -175,7 +181,8 @@ not hold them. That is expected. Each one must still be made by hand.
 
 Within one working day, record in this repository under `docs/incidents/`:
 
-- what happened and when, from the first alert to the switch back;
+- what happened and when, from the first alert to the switch back, and who
+  ran each release, reconciliation and Mark closed from the site's activity;
 - which bookings were handled by hand, by confirmation number, and by whom:
   take the name from each acknowledged alert in the site's activity;
 - whether any guest was affected, and how;
