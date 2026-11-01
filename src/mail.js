@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
-import { MAIL_TOKEN_FIELD, randomSecret, userError } from './settings.js';
-import { decryptSecret, encryptSecret, secretProblem } from './secrets.js';
+import { randomSecret, userError, readSecret, MAIL_TOKEN_FIELD } from './settings.js';
+import { encryptSecret } from './secrets.js';
 
 // Outbound email through Postmark: invites to set a password, password
 // reset links and a test message. One Postmark server token for the whole
 // install, set on the Admin panel's Email tab. Postmark only sends from an
 // address or domain verified in the Postmark account (Sender Signatures).
-// The token is stored encrypted (see secrets.js) and decrypted only to send.
+// The token is stored encrypted under the install keyring.
 const API = 'https://api.postmarkapp.com';
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -26,24 +26,13 @@ export async function checkMailToken(token, fetchImpl = fetch) {
   return (await res.json()).Name ?? '';
 }
 
-// The stored email settings with the token decrypted, for sendEmail only.
-// Never saved, logged or sent to the browser.
-export function mailForSending(mail, keyring) {
-  if (!mail?.serverToken) return mail;
-  try {
-    return { ...mail, serverToken: decryptSecret(mail.serverToken, keyring, MAIL_TOKEN_FIELD) };
-  } catch (err) {
-    throw userError(400, `Email sending cannot use the saved Postmark token: ${err.message.replace('the Settings screen', 'the Admin panel, Email tab')}.`);
-  }
-}
-
-// `mail` must come from mailForSending: its token in plain text.
-export async function sendEmail(mail, { to, subject, html, text }, fetchImpl = fetch) {
+export async function sendEmail(mail, { to, subject, html, text }, { fetchImpl = fetch, keyring }) {
   if (!mail?.serverToken) throw userError(400, 'Email sending is not set up. An admin connects Postmark on the Admin panel, Email tab.');
+  const token = readSecret(mail.serverToken, keyring, MAIL_TOKEN_FIELD, 'Paste the token again on the Admin panel, Email tab.');
   const from = mail.fromName ? `"${mail.fromName.replace(/"/g, '')}" <${mail.from}>` : mail.from;
   const res = await fetchImpl(`${API}/email`, {
     method: 'POST',
-    headers: headers(mail.serverToken),
+    headers: headers(token),
     body: JSON.stringify({ From: from, To: to, Subject: subject, HtmlBody: html, TextBody: text, MessageStream: 'outbound' }),
   });
   let body = {};
@@ -58,7 +47,7 @@ export async function sendEmail(mail, { to, subject, html, text }, fetchImpl = f
 }
 
 // Applies a change to the install's email settings. Checks a new token with
-// Postmark before anything is saved, and encrypts it with `keyring`.
+// Postmark before anything is saved.
 export async function applyMailChange(current = {}, patch, { origin, at, fetchImpl, keyring }) {
   if (patch.disconnect) return { mail: undefined, changed: ['email sending disconnected'] };
   const next = { ...current };
@@ -92,14 +81,11 @@ export async function applyMailChange(current = {}, patch, { origin, at, fetchIm
   return { mail: next, changed };
 }
 
-// What the browser may see: never the token. With `keyring`, also why the
-// saved token cannot be used, if it cannot.
-export function publicMail(mail, keyring) {
+export function publicMail(mail) {
   if (!mail?.serverToken) return { connected: false, from: mail?.from ?? '', fromName: mail?.fromName ?? 'Table Runner', appUrl: mail?.appUrl ?? '' };
   return {
     connected: true, from: mail.from, fromName: mail.fromName ?? '', appUrl: mail.appUrl,
     serverName: mail.serverName, connectedAt: mail.connectedAt, lastTestAt: mail.lastTestAt ?? null,
-    ...(keyring ? { tokenProblem: secretProblem(mail.serverToken, keyring, MAIL_TOKEN_FIELD) } : {}),
   };
 }
 

@@ -9,9 +9,8 @@ import { exampleConfig } from '../config/allocation.example.js';
 // Redis, and is edited on the dashboard's Settings screen by an admin.
 // Passwords are stored only as scrypt hashes. Everyone signs in as a named
 // user; the shared team and admin passwords of earlier versions are retired.
-// The SevenRooms client secret and the Postmark server tokens must be read
-// back, so they are encrypted instead, under a key the app keeps apart from
-// the settings (see secrets.js).
+// The SevenRooms client secret must be read back, so it is encrypted instead,
+// under a key the app keeps apart from the settings (see secrets.js).
 
 const scryptAsync = promisify(scrypt);
 const SETTINGS_KEY = 'tr:settings';
@@ -166,8 +165,6 @@ export function publicSettings(s, origin, { keyring }) {
         // False if Postmark points at another address than the one in use now.
         pointsHere: s.postmark.hookUrl === inboundUrlFor(s, origin),
         hookHost: new URL(s.postmark.hookUrl).host,
-        // Why the saved token cannot be used, or null. Never the token.
-        tokenProblem: secretProblem(s.postmark.serverToken, keyring, POSTMARK_TOKEN_FIELD),
       }
       : { connected: false },
     alertWebhookUrl: s.alertWebhookUrl ?? '',
@@ -185,61 +182,58 @@ export function publicSettings(s, origin, { keyring }) {
 }
 
 export const CLIENT_SECRET_FIELD = 'sevenRooms.clientSecret';
-// The install's Postmark token for invites and password resets.
-export const MAIL_TOKEN_FIELD = 'mail.serverToken';
-// Each site's Postmark token, used to point its inbound webhook here.
 export const POSTMARK_TOKEN_FIELD = 'postmark.serverToken';
+export const MAIL_TOKEN_FIELD = 'mail.serverToken';
 
-// Applies `fn(stored, field)` to every stored secret in the settings and
-// returns the new settings with a count per kind of secret changed. `fn`
-// returns the replacement, or undefined to leave a value as it is.
+// Applies `fn(stored, field)` to every stored secret: each site's SevenRooms
+// client secret and Postmark inbound token, and the install's Postmark
+// sending token. Returns the new settings and how many values changed.
 function mapSecrets(settings, fn) {
-  const counts = { sevenRooms: 0, postmark: 0, mail: 0 };
-  const swap = (stored, field, kind) => {
-    if (!stored) return stored;
-    const v = fn(stored, field);
-    if (v === undefined) return stored;
-    counts[kind]++;
-    return v;
+  let count = 0;
+  const swap = (obj, prop, field) => {
+    const stored = obj?.[prop];
+    if (!stored) return obj;
+    const next = fn(stored, field);
+    if (next === stored) return obj;
+    count++;
+    return { ...obj, [prop]: next };
   };
   const sites = (settings.sites ?? []).map((site) => {
-    let out = site;
-    const secret = swap(site.sevenRooms?.clientSecret, CLIENT_SECRET_FIELD, 'sevenRooms');
-    if (secret !== site.sevenRooms?.clientSecret) out = { ...out, sevenRooms: { ...site.sevenRooms, clientSecret: secret } };
-    const token = swap(site.postmark?.serverToken, POSTMARK_TOKEN_FIELD, 'postmark');
-    if (token !== site.postmark?.serverToken) out = { ...out, postmark: { ...site.postmark, serverToken: token } };
-    return out;
+    const sevenRooms = swap(site.sevenRooms, 'clientSecret', CLIENT_SECRET_FIELD);
+    const postmark = swap(site.postmark, 'serverToken', POSTMARK_TOKEN_FIELD);
+    return sevenRooms === site.sevenRooms && postmark === site.postmark ? site : { ...site, sevenRooms, postmark };
   });
-  const next = { ...settings, sites };
-  const mailToken = swap(settings.mail?.serverToken, MAIL_TOKEN_FIELD, 'mail');
-  if (mailToken !== settings.mail?.serverToken) next.mail = { ...settings.mail, serverToken: mailToken };
-  return { settings: next, counts };
+  const mail = swap(settings.mail, 'serverToken', MAIL_TOKEN_FIELD);
+  return { settings: { ...settings, sites, ...(settings.mail ? { mail } : {}) }, count };
 }
 
-// Postmark tokens saved before they were encrypted are still in plain text,
-// and may be in use. Encrypts each one in place under the current key.
-// Returns null when there is nothing to do.
-export function encryptPlainTokens(settings, keyring) {
-  const { settings: next, counts } = mapSecrets(settings, (stored, field) => (
-    field !== CLIENT_SECRET_FIELD && !isEncrypted(stored) ? encryptSecret(stored, keyring, field) : undefined
-  ));
-  const count = counts.postmark + counts.mail;
-  return count ? { settings: next, count } : null;
-}
-
-// A new encryption key for the whole install. Every SevenRooms client secret
-// and Postmark token that can be read is re-encrypted under it; one that
-// cannot stays as it is and still has to be entered again. A Postmark token
-// still in plain text is encrypted. Returns the new settings and the keyring
-// holding both keys, so the old one is dropped only once the settings are saved.
+// A new encryption key for the whole install. Every secret that can be read
+// is re-encrypted under it; one that cannot stays as it is and still has to
+// be entered again. Returns the new settings and the keyring holding both
+// keys, so the old one is dropped only once the settings are saved.
 export function rotateEncryptionKey(settings, keyring, at) {
   const rotated = addKey(keyring, at);
-  const { settings: next, counts } = mapSecrets(settings, (stored, field) => {
-    if (!isEncrypted(stored)) return field === CLIENT_SECRET_FIELD ? undefined : encryptSecret(stored, rotated, field);
-    if (secretProblem(stored, keyring, field)) return undefined;
-    return encryptSecret(decryptSecret(stored, keyring, field), rotated, field);
-  });
-  return { settings: next, keyring: rotated, count: counts.sevenRooms, counts };
+  const r = mapSecrets(settings, (stored, field) => (secretProblem(stored, keyring, field)
+    ? stored
+    : encryptSecret(decryptSecret(stored, keyring, field), rotated, field)));
+  return { settings: r.settings, keyring: rotated, count: r.count };
+}
+
+// Secrets saved in plain text before encryption existed are encrypted in
+// place. Returns the new settings, or null if there were none.
+export function encryptPlainSecrets(settings, keyring) {
+  const r = mapSecrets(settings, (stored, field) => (isEncrypted(stored) ? stored : encryptSecret(stored, keyring, field)));
+  return r.count ? r.settings : null;
+}
+
+// Reads a stored secret for use. A secret that cannot be read means the
+// connection has to be made again, so the message says where.
+export function readSecret(stored, keyring, field, reconnect) {
+  try {
+    return decryptSecret(stored, keyring, field);
+  } catch (err) {
+    throw userError(400, `The saved ${field === MAIL_TOKEN_FIELD ? 'Postmark sending token' : field === POSTMARK_TOKEN_FIELD ? 'Postmark inbound token' : 'secret'} cannot be used: ${err.message.replace(/\. Enter it again on the Settings screen$/, '')}. ${reconnect}`);
+  }
 }
 
 // Starting reserve for late OpenTable bookings until the coaching section has
