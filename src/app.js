@@ -1,7 +1,6 @@
 import { SyncService } from './sync.js';
 import { parseOpenTableEmail } from './adapters/opentable-email.js';
 import { reconcile } from './reconcile.js';
-import { actorRecord } from './alert.js';
 import { runReleases } from './release.js';
 import { addDays, allocatedTables, releaseAt, exposureFor, holdBackFor, weekday } from './allocation.js';
 import { MemoryState, MemoryLock } from './store.js';
@@ -58,10 +57,10 @@ export function createApp({
 
     today: () => clock().slice(0, 10),
 
-    // `by` is the person who ran it from the dashboard ({ name, email });
-    // left out for the scheduled runs, which keep their usual wording.
+    // `by` is the person who ran it from the dashboard, as describeActor
+    // writes it; left out for scheduled runs, which keep their usual wording.
     async reconcile({ days = 7, by } = {}) {
-      const who = by && actorRecord(by);
+      const who = by || null;
       const fromDate = clock().slice(0, 10);
       const toDate = addDays(fromDate, days - 1);
       const [ot, sr] = await Promise.all([
@@ -77,27 +76,27 @@ export function createApp({
           issues,
         });
       }
-      const result = { at: clock(), fromDate, toDate, checked: ot.length, issues, by: who ?? null };
+      const result = { at: clock(), fromDate, toDate, checked: ot.length, issues, by: who };
       await state.set('lastReconciliation', result);
       const outcome = issues.length ? `${issues.length} issue(s) across ${ot.length} bookings` : `clean, ${ot.length} bookings checked`;
-      await activity.add('reconcile', who ? `Reconciliation run by ${who.name}: ${outcome}`
+      await activity.add('reconcile', who ? `Reconciliation run by ${who}: ${outcome}`
         : issues.length ? `Reconciliation: ${outcome}` : `Reconciliation clean: ${ot.length} bookings checked`, who ? { by: who } : {});
       return result;
     },
 
     async release({ days = 7, manual = manualRelease, by } = {}) {
-      const who = by && actorRecord(by);
+      const who = by || null;
       return lock.run(async () => {
         const now = clock();
         const fromDate = now.slice(0, 10);
         const due = await runReleases({
           config, store, sevenRooms, alert: alerts, now, fromDate, toDate: addDays(fromDate, days - 1), manual,
         });
-        await state.set('lastRelease', { at: now, count: due.length, manual, by: who ?? null });
+        await state.set('lastRelease', { at: now, count: due.length, manual, by: who });
         const what = `${manual ? 'host asked to release' : 'released'} ${due.length} unsold OpenTable table(s)`;
         // A run from the dashboard is recorded even when nothing was due, so
         // the record shows who checked and when.
-        if (who) await activity.add('release', `Release run by ${who.name}: ${due.length ? what : 'nothing due'}`, { tables: due, by: who });
+        if (who) await activity.add('release', `Release run by ${who}: ${due.length ? what : 'nothing due'}`, { tables: due, by: who });
         else if (due.length) await activity.add('release', what[0].toUpperCase() + what.slice(1), { tables: due });
         return due;
       });
@@ -138,7 +137,7 @@ export function createApp({
     // A host confirms released tables are now closed in OpenTable. They stop
     // counting as exposure. Takes keys, or a date and sitting for all of it.
     async confirmClosed({ keys, date, sitting, by } = {}) {
-      const who = by && actorRecord(by);
+      const who = by || null;
       return lock.run(async () => {
         const released = await store.releasedKeys();
         const wanted = Array.isArray(keys) ? keys.map(String)
@@ -150,7 +149,7 @@ export function createApp({
           done.push(k);
         }
         if (done.length) {
-          await activity.add('opentable.closed', `Marked ${done.length} table(s) closed in OpenTable${who ? ` by ${who.name}` : ''}: ${done.map((k) => k.split('|').slice(1).join(' ')).join(', ')}${date ? ` on ${date}` : ''}`,
+          await activity.add('opentable.closed', `Marked ${done.length} table(s) closed in OpenTable${who ? ` by ${who}` : ''}: ${done.map((k) => k.split('|').slice(1).join(' ')).join(', ')}${date ? ` on ${date}` : ''}`,
             who ? { tables: done, by: who } : { tables: done });
         }
         return { closed: done };

@@ -25,23 +25,18 @@ the role an admin gives their account.
 A viewer account sees everything but cannot acknowledge an alert. Nobody on
 shift should have one.
 
-Every acknowledgement is recorded against the account that made it: the
-alert keeps the person's name and email and the time, and the site's activity
-shows "Alert N acknowledged by [name]". That record is what the incident
-write-up uses to show who handled which booking by hand, so acknowledge only
-on your own account and only once you have done what the alert asks.
+Contact numbers: [sync owner mobile], [back-up mobile], [GM mobile]. The sync
+owner answers during service hours from 11:30 to 23:30.
+
+At the host stand, sign out at the end of each shift. Every alert you
+acknowledge is recorded with your name, so a sign-in left open puts your name
+on someone else's actions.
 
 The same goes for the other buttons on the dashboard. A release, a
 reconciliation and Mark closed in OpenTable are each recorded in the site's
 activity with the name of the person who pressed it, and the tables
 concerned. The scheduled release and reconciliation carry no name, because
 nobody ran them.
-
-Contact numbers: [sync owner mobile], [back-up mobile], [GM mobile]. The sync
-owner answers during service hours from 11:30 to 23:30.
-
-At the host stand, sign out at the end of each shift, so the next person
-signs in as themselves and nobody works on an account that is not theirs.
 
 ## During service: what the host does
 
@@ -72,7 +67,8 @@ the direct widget. Two parties now hold one table.
    the guest before they arrive.
 3. Enter the OpenTable booking in SevenRooms by hand with its confirmation
    number in the notes.
-4. Write in the alert who sold the protected table, if known. Acknowledge it.
+4. Tell the duty manager who sold the protected table, if known, for the
+   next day's review. Acknowledge the alert.
 
 Every `table_taken` alert is reviewed the next day. It means the protection
 on OpenTable tables failed, which matters more than the single booking.
@@ -153,9 +149,9 @@ account, then keeps trying the sync owner.
 3. Tell the duty manager: from now on, every OpenTable booking, change and
    cancellation is entered in SevenRooms by hand.
 
-The change is recorded with your name and the time on the Admin panel's
-recent changes, and as "Settings changed by [your name]" with the time in the
-site's activity. Use that record for the times in the incident write-up.
+The change is recorded with your name and the time in the site's activity
+and on the Admin panel's recent changes. Use that record for the times in the
+incident write-up.
 
 While in shadow mode, changes and cancellations to bookings that the sync
 already wrote to SevenRooms raise `sync_failed`, because the shadow store does
@@ -183,8 +179,8 @@ Within one working day, record in this repository under `docs/incidents/`:
 
 - what happened and when, from the first alert to the switch back, and who
   ran each release, reconciliation and Mark closed from the site's activity;
-- which bookings were handled by hand, by confirmation number, and by whom:
-  take the name from each acknowledged alert in the site's activity;
+- which bookings were handled by hand, by confirmation number, and who
+  handled each: the site's activity shows who acknowledged every alert;
 - whether any guest was affected, and how;
 - the cause, and what changes so it does not happen again.
 

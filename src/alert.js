@@ -20,10 +20,10 @@ export class MemoryAlerts {
     return this.sent;
   }
 
-  async acknowledge(id, by = DASHBOARD_ACTOR) {
+  async acknowledge(id, by = 'dashboard') {
     const a = this.sent.find((x) => x.id === id);
     if (!a) return null;
-    Object.assign(a, { acknowledged: true, acknowledgedBy: actorRecord(by), acknowledgedAt: this.clock() });
+    Object.assign(a, { acknowledged: true, acknowledgedBy: by, acknowledgedAt: this.clock() });
     return a;
   }
 }
@@ -31,15 +31,6 @@ export class MemoryAlerts {
 // Records every alert in the primary store (the dashboard reads from it) and
 // copies it to notify sinks such as a Slack or Teams webhook. A failed
 // notification never loses the alert: it is still on the dashboard.
-// Who did something, as stored against an alert or activity entry. The
-// demo server and the static build have no named users, so they act as the
-// dashboard; the Vercel service passes the signed-in account.
-export const DASHBOARD_ACTOR = Object.freeze({ name: 'dashboard', email: null });
-
-export function actorRecord(by = DASHBOARD_ACTOR) {
-  return { name: String(by?.name ?? DASHBOARD_ACTOR.name), email: by?.email ?? null };
-}
-
 export class NotifyingAlerts {
   constructor(primary, notify = []) {
     this.primary = primary;

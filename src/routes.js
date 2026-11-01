@@ -1,19 +1,18 @@
 // The dashboard API, independent of transport. The Node server and the
 // static browser build both answer requests through this one function.
 
-import { DASHBOARD_ACTOR, actorRecord } from './alert.js';
-
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function httpError(status, message) {
   return Object.assign(new Error(message), { status });
 }
 
-// `actor` is who is making the request: { name, email }. The Vercel service
-// passes the signed-in account; the demo server and static build have no named
-// users and act as the dashboard.
-export async function route(app, method, url, readBody, actor = DASHBOARD_ACTOR) {
+// `actor` is the signed-in person, { name, email }, where there is one. Their
+// name goes on what they acknowledge, release, reconcile or mark closed, so an
+// incident can be traced to a person.
+export async function route(app, method, url, readBody, { actor = null } = {}) {
   const key = `${method} ${url.pathname}`;
+  const by = actor ? describeActor(actor) : undefined;
   const today = app.today ? app.today() : (await app.status()).now.slice(0, 10);
   const date = (name) => {
     const v = url.searchParams.get(name) ?? today;
@@ -29,12 +28,12 @@ export async function route(app, method, url, readBody, actor = DASHBOARD_ACTOR)
     return (await (all ? app.alerts.all() : app.alerts.open())).slice().sort((a, b) => b.id - a.id);
   }
   if (key === 'GET /api/activity') return app.activity.list({ limit: 100 });
-  if (key === 'POST /api/reconcile') return app.reconcile({ by: actorRecord(actor) });
-  if (key === 'POST /api/release') return app.release({ by: actorRecord(actor) });
+  if (key === 'POST /api/reconcile') return app.reconcile({ by });
+  if (key === 'POST /api/release') return app.release({ by });
   if (key === 'POST /api/opentable-closed') {
     const body = await readBody();
     if (!Array.isArray(body.keys) && !(typeof body.date === 'string' && DATE.test(body.date))) throw httpError(400, 'send keys, or a date (and optional sitting)');
-    return app.confirmClosed({ keys: body.keys, date: body.date, sitting: body.sitting, by: actorRecord(actor) });
+    return app.confirmClosed({ keys: body.keys, date: body.date, sitting: body.sitting, by });
   }
   if (key === 'GET /api/coaching') return app.coaching({ weeks: 8 });
   if (key === 'GET /api/late-demand') {
@@ -51,14 +50,15 @@ export async function route(app, method, url, readBody, actor = DASHBOARD_ACTOR)
   }
   const ack = key.match(/^POST \/api\/alerts\/(\d+)\/ack$/);
   if (ack) {
-    const by = actorRecord(actor);
     const a = await app.alerts.acknowledge(Number(ack[1]), by);
     if (!a) throw httpError(404, 'alert not found');
-    await app.activity.add('alert.ack', `Alert ${a.id} acknowledged by ${by.name}: ${a.code}`, { by });
+    await app.activity.add('alert.ack', `Alert ${a.id} acknowledged${by ? ` by ${by}` : ''}: ${a.code}`);
     return a;
   }
   throw httpError(404, 'not found');
 }
+
+export const describeActor = (actor) => (actor.email ? `${actor.name} (${actor.email})` : actor.name);
 
 function stripHtml(html) {
   return String(html).replace(/<br\s*\/?>|<\/(p|div|tr|li)>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');

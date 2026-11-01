@@ -558,7 +558,7 @@ function renderStatus(s) {
     conn('OpenTable source', 'openTable'),
     conn('Email parser', 'emailParser'),
     conn('Floor plan', 'floorPlan'),
-    tile('Reconciliation', !rec ? 'Not run' : rec.issues ? `${rec.issues} issue(s)` : 'Clean', rec ? `${rec.checked} checked, ${fmtAt(rec.at)}${rec.by ? `, run by ${rec.by.name}` : ''}` : 'Runs each morning before service', !rec ? 'idle' : rec.issues ? 'bad' : 'ok'),
+    tile('Reconciliation', !rec ? 'Not run' : rec.issues ? `${rec.issues} issue(s)` : 'Clean', rec ? `${rec.checked} checked, ${fmtAt(rec.at)}${rec.by ? `, run by ${rec.by}` : ''}` : 'Runs each morning before service', !rec ? 'idle' : rec.issues ? 'bad' : 'ok'),
     tile('Open in OpenTable', s.exposure?.atRisk?.length ? `${s.exposure.atRisk.length} sitting(s) at risk` : String(s.exposure?.exposed ?? 0),
       s.exposure?.atRisk?.length ? `No reserve left: stop online sales for ${s.exposure.atRisk.map((x) => `${fmtDay(x.date)} ${x.sitting}`).join(', ')}` : 'Released tables still bookable in OpenTable, next 7 days',
       s.exposure?.atRisk?.length ? 'bad' : s.exposure?.exposed ? 'warn' : 'ok'),

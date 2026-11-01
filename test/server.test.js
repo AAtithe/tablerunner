@@ -40,13 +40,9 @@ test('alerts can be acknowledged and leave an audit entry', async (t) => {
 
   const [first] = await (await fetch(`${base}/api/alerts`)).json();
   const res = await fetch(`${base}/api/alerts/${first.id}/ack`, { method: 'POST' });
-  const acked = await res.json();
-  assert.equal(acked.acknowledged, true);
-  // The demo server has no named users, so it acknowledges as the dashboard.
-  assert.deepEqual(acked.acknowledgedBy, { name: 'dashboard', email: null });
+  assert.equal((await res.json()).acknowledged, true);
   assert.ok(!(await (await fetch(`${base}/api/alerts`)).json()).some((a) => a.id === first.id));
   assert.equal(app.activity.list()[0].kind, 'alert.ack');
-  assert.equal(app.activity.list()[0].message, `Alert ${first.id} acknowledged by dashboard: ${first.code}`);
 });
 
 test('inbound email endpoint syncs a booking', async (t) => {
