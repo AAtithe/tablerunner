@@ -193,7 +193,8 @@ Access:
 - Secrets the service must read back are stored encrypted (AES-256-GCM):
   each site's SevenRooms client secret and Postmark inbound token, and the
   Postmark sending token on the Email tab. Tokens saved in plain text by
-  earlier versions are encrypted on the first request after deployment. The
+  earlier versions are encrypted on the first request after deployment, and
+  the admin log records how many were converted (never the values). The
   app creates the key itself and keeps it in Redis apart from the settings.
   One key covers everything; an admin replaces it with the "New encryption
   key" button on a site's Settings screen, which re-encrypts every secret.
