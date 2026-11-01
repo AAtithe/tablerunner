@@ -28,8 +28,9 @@ shift should have one.
 Contact numbers: [sync owner mobile], [back-up mobile], [GM mobile]. The sync
 owner answers during service hours from 11:30 to 23:30.
 
-At the host stand, sign out at the end of each shift, so the next person
-signs in as themselves and nobody works on an account that is not theirs.
+At the host stand, sign out at the end of each shift. Every alert you
+acknowledge is recorded with your name, so a sign-in left open puts your name
+on someone else's actions.
 
 ## During service: what the host does
 
@@ -60,7 +61,8 @@ the direct widget. Two parties now hold one table.
    the guest before they arrive.
 3. Enter the OpenTable booking in SevenRooms by hand with its confirmation
    number in the notes.
-4. Write in the alert who sold the protected table, if known. Acknowledge it.
+4. Tell the duty manager who sold the protected table, if known, for the
+   next day's review. Acknowledge the alert.
 
 Every `table_taken` alert is reviewed the next day. It means the protection
 on OpenTable tables failed, which matters more than the single booking.
@@ -141,9 +143,9 @@ account, then keeps trying the sync owner.
 3. Tell the duty manager: from now on, every OpenTable booking, change and
    cancellation is entered in SevenRooms by hand.
 
-The change is recorded with your name and the time on the Admin panel's
-recent changes, and with the time in the site's activity. Use that record for
-the times in the incident write-up.
+The change is recorded with your name and the time in the site's activity
+and on the Admin panel's recent changes. Use that record for the times in the
+incident write-up.
 
 While in shadow mode, changes and cancellations to bookings that the sync
 already wrote to SevenRooms raise `sync_failed`, because the shadow store does
@@ -170,7 +172,8 @@ not hold them. That is expected. Each one must still be made by hand.
 Within one working day, record in this repository under `docs/incidents/`:
 
 - what happened and when, from the first alert to the switch back;
-- which bookings were handled by hand, by confirmation number;
+- which bookings were handled by hand, by confirmation number, and who
+  handled each: the site's activity shows who acknowledged every alert;
 - whether any guest was affected, and how;
 - the cause, and what changes so it does not happen again.
 
